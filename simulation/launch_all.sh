@@ -11,7 +11,7 @@
 #   - Ignition Gazebo Fortress installed
 #   - Python image_compressor deps: pip3 install opencv-python numpy
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -34,12 +34,13 @@ pkill -f "rosbridge_websocket" 2>/dev/null || true
 pkill -f "image_compressor" 2>/dev/null || true
 sleep 2
 
-WORLD_FILE="$SCRIPT_DIR/worlds/turtlebot3_world.sdf"
+NUM_ROBOTS=${NUM_ROBOTS:-2}
+WORLD_FILE="/tmp/turtlebot3_world.generated.sdf"
 
-
-# 0 Generate robots
+# 0 Generate robots and world
 echo "Generating $NUM_ROBOTS robot model folders..."
 bash "$SCRIPT_DIR/models/generate_robots.sh" "$NUM_ROBOTS"
+bash "$SCRIPT_DIR/worlds/generate_world.sh" "$NUM_ROBOTS" "$WORLD_FILE"
 
 
 # 1. Ignition Gazebo (headless server)
@@ -68,22 +69,23 @@ echo "[2/6] Starting ros_gz_bridge..."
 #     /scan/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked &
 # BRIDGE_PID=$!
 
-NUM_ROBOTS=${NUM_ROBOTS:-2}
-
-BRIDGE_ARGS=""
+BRIDGE_ARGS=()
+BRIDGE_REMAP_ARGS=()
 for i in $(seq 0 $((NUM_ROBOTS-1))); do
-    BRIDGE_ARGS="$BRIDGE_ARGS \
-        /tb3_$i/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist \
-        /tb3_$i/odom@nav_msgs/msg/Odometry[ignition.msgs.Odometry \
-        /tb3_$i/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V \
-        /tb3_$i/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan \
-        /tb3_$i/imu@sensor_msgs/msg/Imu[ignition.msgs.IMU \
-        /tb3_$i/camera/image_raw@sensor_msgs/msg/Image[ignition.msgs.Image \
-        /tb3_$i/joint_states@sensor_msgs/msg/JointState[ignition.msgs.Model \
-        /tb3_$i/scan/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked"
+    BRIDGE_ARGS+=(
+        "/tb3_$i/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist"
+        "/tb3_$i/odom@nav_msgs/msg/Odometry[ignition.msgs.Odometry"
+        "/tb3_$i/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V"
+        "/tb3_$i/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan"
+        "/tb3_$i/imu@sensor_msgs/msg/Imu[ignition.msgs.IMU"
+        "/tb3_$i/camera/image_raw@sensor_msgs/msg/Image[ignition.msgs.Image"
+        "/tb3_$i/joint_states@sensor_msgs/msg/JointState[ignition.msgs.Model"
+        "/tb3_$i/scan/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked"
+    )
+    BRIDGE_REMAP_ARGS+=(-r "/tb3_$i/tf:=/tf")
 done
 
-ros2 run ros_gz_bridge parameter_bridge $BRIDGE_ARGS &
+ros2 run ros_gz_bridge parameter_bridge "${BRIDGE_ARGS[@]}" --ros-args "${BRIDGE_REMAP_ARGS[@]}" &
 BRIDGE_PID=$!
 
 sleep 3
@@ -112,12 +114,16 @@ for path in \
 done
 
 if [ -n "$URDF_FILE" ]; then
+    RSP_PIDS=()
     for i in $(seq 0 $((NUM_ROBOTS-1))); do
         ros2 run robot_state_publisher robot_state_publisher \
             --ros-args -r __node:=rsp_tb3_$i \
                        -r __ns:=/tb3_$i \
+                       -r /tf:=/tf \
+                       -r /tf_static:=/tf_static \
                        -p frame_prefix:=tb3_$i/ \
             -- "$URDF_FILE" &
+        RSP_PIDS+=($!)
     done
     sleep 1
     echo "  $NUM_ROBOTS robot_state_publisher instances running"
@@ -141,7 +147,7 @@ echo ""
 echo "  Ignition Gazebo:      PID $IGN_PID"
 echo "  ros_gz_bridge:        PID $BRIDGE_PID"
 echo "  Image compressor:     PID $COMPRESSOR_PID"
-[ -n "$RSP_PID" ] && echo "  robot_state_publisher: PID $RSP_PID"
+[ ${#RSP_PIDS[@]:-0} -gt 0 ] && echo "  robot_state_publisher: ${RSP_PIDS[*]}"
 echo "  rosbridge:            PID $ROSBRIDGE_PID"
 echo ""
 echo "ROS 2 topics:"
@@ -157,7 +163,9 @@ cleanup() {
     echo ""
     echo "Shutting down..."
     kill $ROSBRIDGE_PID 2>/dev/null || true
-    [ -n "$RSP_PID" ] && kill $RSP_PID 2>/dev/null || true
+    if [ ${#RSP_PIDS[@]:-0} -gt 0 ]; then
+        kill "${RSP_PIDS[@]}" 2>/dev/null || true
+    fi
     kill $COMPRESSOR_PID 2>/dev/null || true
     kill $BRIDGE_PID 2>/dev/null || true
     kill $IGN_PID 2>/dev/null || true

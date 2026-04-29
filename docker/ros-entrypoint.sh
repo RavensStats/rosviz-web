@@ -6,7 +6,7 @@
 #  Each process runs in the background; the script waits for all.
 #  If any process exits, the container stops.
 # =============================================================
-set -e
+set -euo pipefail
 source /opt/ros/humble/setup.bash
 
 # ── Multi-robot config ──
@@ -21,6 +21,7 @@ echo "  └───────────────────────
 echo ""
 
 PIDS=()
+WORLD_FILE=/tmp/turtlebot3_world.generated.sdf
 cleanup() {
     echo "[entrypoint] Shutting down all processes..."
     for pid in "${PIDS[@]}"; do
@@ -31,50 +32,39 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
-# ── 0. Generate per-robot model folders ──
+# ── 0. Generate per-robot model folders + dynamic world ──
 echo "[entrypoint] Generating $NUM_ROBOTS robot model folders..."
 bash /ros_ws/simulation/models/generate_robots.sh "$NUM_ROBOTS"
-
-ROBOTS_XML=""
-for i in $(seq 0 $((NUM_ROBOTS-1))); do
-    # Spread robots along x axis, alternating sign
-    X=$(awk "BEGIN { print ($i - ($NUM_ROBOTS - 1) / 2.0) }")
-    ROBOTS_XML="${ROBOTS_XML}
-    <include>
-      <uri>model://turtlebot3_waffle_$i</uri>
-      <pose>$X 0 0.01 0 0 0</pose>
-    </include>"
-done
-
-# Replace the placeholder in the base template
-awk -v r="$ROBOTS_XML" '{gsub(/<!-- ROBOTS_PLACEHOLDER -->/, r); print}' \
-    /ros_ws/simulation/worlds/turtlebot3_world_base.sdf \
-    > /tmp/turtlebot3_world.sdf
+bash /ros_ws/simulation/worlds/generate_world.sh "$NUM_ROBOTS" "$WORLD_FILE"
 
 # ── 1. Ignition Gazebo ──
 echo "[entrypoint] Starting Ignition Gazebo (headless)..."
-ign gazebo -s -r /tmp/turtlebot3_world.sdf &
+ign gazebo -s -r "$WORLD_FILE" &
 PIDS+=($!)
 sleep 5
 
-# ── 2. ros_gz_bridge — namespaced per robot ──
+# ── 2. ros_gz_bridge — namespaced per robot, /tf remapped shared ──
 echo "[entrypoint] Starting ros_gz_bridge..."
-BRIDGE_ARGS=""
+BRIDGE_ARGS=()
+BRIDGE_REMAP_ARGS=()
 for i in $(seq 0 $((NUM_ROBOTS-1))); do
-    BRIDGE_ARGS="$BRIDGE_ARGS \
-        /tb3_$i/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist \
-        /tb3_$i/odom@nav_msgs/msg/Odometry[ignition.msgs.Odometry \
-        /tb3_$i/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan \
-        /tb3_$i/imu@sensor_msgs/msg/Imu[ignition.msgs.IMU \
-        /tb3_$i/camera/image_raw@sensor_msgs/msg/Image[ignition.msgs.Image \
-        /tb3_$i/camera/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo \
-        /tb3_$i/camera/depth/image_rect_raw@sensor_msgs/msg/Image[ignition.msgs.Image \
-        /tb3_$i/camera/depth/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo \
-        /tb3_$i/camera/depth/image_rect_raw/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked \
-        /tb3_$i/joint_states@sensor_msgs/msg/JointState[ignition.msgs.Model \
-        /tb3_$i/scan/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked"
+    BRIDGE_ARGS+=(
+        "/tb3_$i/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist"
+        "/tb3_$i/odom@nav_msgs/msg/Odometry[ignition.msgs.Odometry"
+        "/tb3_$i/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V"
+        "/tb3_$i/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan"
+        "/tb3_$i/imu@sensor_msgs/msg/Imu[ignition.msgs.IMU"
+        "/tb3_$i/camera/image_raw@sensor_msgs/msg/Image[ignition.msgs.Image"
+        "/tb3_$i/camera/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo"
+        "/tb3_$i/camera/depth/image_rect_raw@sensor_msgs/msg/Image[ignition.msgs.Image"
+        "/tb3_$i/camera/depth/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo"
+        "/tb3_$i/camera/depth/image_rect_raw/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked"
+        "/tb3_$i/joint_states@sensor_msgs/msg/JointState[ignition.msgs.Model"
+        "/tb3_$i/scan/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked"
+    )
+    BRIDGE_REMAP_ARGS+=(-r "/tb3_$i/tf:=/tf")
 done
-ros2 run ros_gz_bridge parameter_bridge $BRIDGE_ARGS &
+ros2 run ros_gz_bridge parameter_bridge "${BRIDGE_ARGS[@]}" --ros-args "${BRIDGE_REMAP_ARGS[@]}" &
 PIDS+=($!)
 sleep 2
 
@@ -88,8 +78,8 @@ if [ -f "$URDF_FILE" ]; then
             --ros-args \
             -r __node:=rsp_tb3_$i \
             -r __ns:=/tb3_$i \
-            -r /tb3_$i/tf:=/tf \
-            -r /tb3_$i/tf_static:=/tf_static \
+            -r /tf:=/tf \
+            -r /tf_static:=/tf_static \
             -p use_sim_time:=false \
             -p frame_prefix:=tb3_$i/ \
             -p "robot_description:=$ROBOT_DESC" &
