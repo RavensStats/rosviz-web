@@ -11,13 +11,20 @@
 #   - Ignition Gazebo Fortress installed
 #   - Python image_compressor deps: pip3 install opencv-python numpy
 
-set -euo pipefail
+set -e # Not -u to allow unset env vars like TURTLEBOT3_MODEL and not -o to allow pipefail since some commands may not output anything
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Source ROS 2 — edit this if your workspace is elsewhere
-source /opt/ros/humble/setup.bash
+if [ -f /opt/ros/humble/setup.bash ]; then
+    source /opt/ros/humble/setup.bash
+else
+    echo "ERROR: ROS 2 not installed in this environment"
+    exit 1
+fi
+
+# Source TurtleBot3 workspace if it exists (for URDFs and models)
 if [ -f ~/turtlebot3_ws/install/setup.bash ]; then
     source ~/turtlebot3_ws/install/setup.bash
 fi

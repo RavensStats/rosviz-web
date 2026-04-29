@@ -6,7 +6,7 @@
 #  Each process runs in the background; the script waits for all.
 #  If any process exits, the container stops.
 # =============================================================
-set -euo pipefail
+set -e # Not -u to allow unset env vars like TURTLEBOT3_MODEL and not -o to allow pipefail since some commands may not output anything
 source /opt/ros/humble/setup.bash
 
 # ── Multi-robot config ──
