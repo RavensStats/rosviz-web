@@ -9,7 +9,8 @@ import {
   Plus,
   Minus,
   Activity,
-  ExternalLink
+  ExternalLink,
+  ChevronLeft
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -113,6 +114,13 @@ export default function DashboardClient() {
       {/* Top Toolbar */}
       <div className="w-full h-12 bg-[#232323] flex items-center px-2 gap-1 border-b border-[#333333]">
         <div className="flex items-center gap-1">
+          <Link href="/">
+            <Button variant="ghost" size="sm" className="h-8 px-3 text-gray-400 hover:text-white hover:bg-[#2a2a2a]">
+              <ChevronLeft className="w-4 h-4 mr-2" />
+              Fleet Overview
+            </Button>
+          </Link>
+          <span className="text-gray-600 mx-2">|</span>
           <Button 
             variant="ghost" 
             size="sm"
