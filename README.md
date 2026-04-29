@@ -211,7 +211,8 @@ Open <http://localhost:3000>.
 ```bash
 source /opt/ros/humble/setup.bash
 export IGN_GAZEBO_RESOURCE_PATH=$(pwd)/simulation/models
-ign gazebo -s -r simulation/worlds/turtlebot3_world.sdf
+bash simulation/worlds/generate_world.sh "${NUM_ROBOTS:-3}" /tmp/turtlebot3_world.generated.sdf
+ign gazebo -s -r /tmp/turtlebot3_world.generated.sdf
 ```
 
 **Terminal 2 — ros_gz_bridge**
@@ -292,7 +293,8 @@ rosviz-web/
 │   ├── models/
 │   │   └── turtlebot3_waffle/      # Ignition Gazebo SDF model
 │   └── worlds/
-│       └── turtlebot3_world.sdf    # Room with walls, obstacles, robot
+│       ├── turtlebot3_world.template.sdf  # Static room template with include placeholder
+│       └── generate_world.sh              # Builds a world file for NUM_ROBOTS robots
 ├── src/
 │   ├── app/                        # Next.js App Router pages + layout
 │   ├── components/
