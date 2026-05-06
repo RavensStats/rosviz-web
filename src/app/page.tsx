@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import VideoStream from '@/components/dashboard/VideoStream';
 import { Grid, Eye } from 'lucide-react';
 
 {/* Important: These arent the actual robots, but since the namespace matter is still WIP/TODO these are just placeholders for now. This will DEFINITELY need to get replaced later though! */}
@@ -68,8 +69,13 @@ export default function FleetOverview() {
               {/* Top section: camera + info side by side */}
               <div className="flex gap-3">
                 {/* Camera Feed */}
-                <div className={`flex-1 aspect-video rounded flex items-center justify-center ${robot.online ? 'bg-[#1a1a1a]' : 'bg-[#222222]'}`}>
-                  <span className="text-gray-600 text-m">{robot.online ? 'Camera Feed Placeholder' : 'Offline'}</span>
+                <div className="flex-1 aspect-video rounded overflow-hidden">
+                  {robot.online
+                    ? <VideoStream topic="/camera/image_raw" />
+                    : <div className="w-full h-full bg-[#222222] flex items-center justify-center">
+                        <span className="text-gray-700 text-xs">Offline</span>
+                      </div>
+                  }
                 </div>
 
                 {/* Info */}
