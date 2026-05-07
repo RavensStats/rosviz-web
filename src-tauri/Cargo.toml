@@ -1,10 +1,10 @@
 [package]
-name = "app"
+name = "rosviz-desktop"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "A real-time desktop dashboard for monitoring and controlling ROS 2 robots."
+authors = ["Prakash Aryan"]
+license = "MIT License"
+repository = "https://github.com/prakash-aryan/rosviz-web.git"
 edition = "2021"
 rust-version = "1.77.2"
 
