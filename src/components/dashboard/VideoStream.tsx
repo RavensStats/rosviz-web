@@ -5,6 +5,7 @@ import { useROS } from '@/hooks/useROS';
 
 interface VideoStreamProps {
   topic: string;
+  robotId: number;
 }
 
 interface ROSCompressedImage {
@@ -17,7 +18,7 @@ interface ROSCompressedImage {
   data: number[];
 }
 
-const VideoStream: React.FC<VideoStreamProps> = ({ topic }) => {
+const VideoStream: React.FC<VideoStreamProps> = ({ topic, robotId }) => {
   const imgRef = useRef<HTMLImageElement>(null);
   const [error, setError] = useState<string>('');
   const [hasFrame, setHasFrame] = useState(false);
@@ -53,7 +54,8 @@ const VideoStream: React.FC<VideoStreamProps> = ({ topic }) => {
     const unsubscribe = subscribe(
       compressedTopic,
       'sensor_msgs/CompressedImage',
-      processImage
+      processImage,
+      robotId
     );
 
     return () => {
@@ -62,7 +64,7 @@ const VideoStream: React.FC<VideoStreamProps> = ({ topic }) => {
         URL.revokeObjectURL(imgRef.current.dataset.prevUrl);
       }
     };
-  }, [topic, subscribe]);
+  }, [topic, robotId, subscribe]);
 
   return (
     <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">

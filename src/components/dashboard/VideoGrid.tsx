@@ -48,7 +48,7 @@ const View: React.FC<ViewProps> = ({ index, topic, label, isMaximized, onMaximiz
         </div>
       </div>
       <div className="w-full h-[calc(100%-1.5rem)]">
-        <VideoStream topic={topic} />
+        <VideoStream topic={topic} robotId={0} />
       </div>
     </div>
   );
