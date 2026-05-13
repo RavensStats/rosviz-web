@@ -35,9 +35,27 @@ trap cleanup SIGINT SIGTERM EXIT
 echo "[entrypoint] Generating $NUM_ROBOTS robot model folders..."
 bash /ros_ws/simulation/models/generate_robots.sh "$NUM_ROBOTS"
 
+# ── Generate the world file from the template ──
+echo "[entrypoint] Generating world file for $NUM_ROBOTS robots..."
+ROBOTS_XML=""
+for i in $(seq 0 $((NUM_ROBOTS-1))); do
+    # Spread robots along x axis, alternating sign
+    X=$(awk "BEGIN { print ($i - ($NUM_ROBOTS - 1) / 2.0) }")
+    ROBOTS_XML="${ROBOTS_XML}
+    <include>
+      <uri>model://turtlebot3_waffle_$i</uri>
+      <pose>$X 0 0.01 0 0 0</pose>
+    </include>"
+done
+
+# Replace the placeholder in the base template
+awk -v r="$ROBOTS_XML" '{gsub(/<!-- ROBOTS_PLACEHOLDER -->/, r); print}' \
+    /ros_ws/simulation/worlds/turtlebot3_world_base.sdf \
+    > /tmp/turtlebot3_world.sdf
+
 # ── 1. Ignition Gazebo ──
 echo "[entrypoint] Starting Ignition Gazebo (headless)..."
-ign gazebo -s -r /ros_ws/simulation/worlds/turtlebot3_world.sdf &
+ign gazebo -s -r /tmp/turtlebot3_world.sdf &
 PIDS+=($!)
 sleep 5
 
@@ -48,7 +66,6 @@ for i in $(seq 0 $((NUM_ROBOTS-1))); do
     BRIDGE_ARGS="$BRIDGE_ARGS \
         /tb3_$i/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist \
         /tb3_$i/odom@nav_msgs/msg/Odometry[ignition.msgs.Odometry \
-        /tb3_$i/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V \
         /tb3_$i/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan \
         /tb3_$i/imu@sensor_msgs/msg/Imu[ignition.msgs.IMU \
         /tb3_$i/camera/image_raw@sensor_msgs/msg/Image[ignition.msgs.Image \
@@ -73,6 +90,8 @@ if [ -f "$URDF_FILE" ]; then
             --ros-args \
             -r __node:=rsp_tb3_$i \
             -r __ns:=/tb3_$i \
+            -r /tb3_$i/tf:=/tf \
+            -r /tb3_$i/tf_static:=/tf_static \
             -p use_sim_time:=false \
             -p frame_prefix:=tb3_$i/ \
             -p "robot_description:=$ROBOT_DESC" &
@@ -88,6 +107,43 @@ echo "[entrypoint] Starting image compressor..."
 python3 /ros_ws/scripts/image_compressor.py &
 PIDS+=($!)
 sleep 1
+
+# ── 4 prime. Muxes for individual view topics ──
+echo "[entrypoint] Starting muxes..."
+build_inputs() {
+    local suffix="$1"
+    local out=""
+    for i in $(seq 0 $((NUM_ROBOTS-1))); do
+        out="$out /tb3_$i/$suffix"
+    done
+    echo "$out"
+}
+
+ros2 run topic_tools mux /selected/scan_points \
+    $(build_inputs scan/points) \
+    --ros-args -r __node:=mux_scan_points &
+PIDS+=($!)
+
+ros2 run topic_tools mux /selected/camera_image \
+    $(build_inputs camera/image_raw/compressed) \
+    --ros-args -r __node:=mux_camera_image &
+PIDS+=($!)
+
+ros2 run topic_tools mux /selected/camera_depth \
+    $(build_inputs camera/depth/image_rect_raw/compressed) \
+    --ros-args -r __node:=mux_camera_depth &
+PIDS+=($!)
+sleep 1
+
+# ── Default muxes to robot 0 ──
+echo "[entrypoint] Defaulting muxes to tb3_0..."
+sleep 2
+ros2 service call /mux_scan_points/select topic_tools_interfaces/srv/MuxSelect \
+    "{topic: '/tb3_0/scan/points'}" || true
+ros2 service call /mux_camera_image/select topic_tools_interfaces/srv/MuxSelect \
+    "{topic: '/tb3_0/camera/image_raw/compressed'}" || true
+ros2 service call /mux_camera_depth/select topic_tools_interfaces/srv/MuxSelect \
+    "{topic: '/tb3_0/camera/depth/image_rect_raw/compressed'}" || true
 
 # ── 5. rosbridge ──
 echo "[entrypoint] Starting rosbridge WebSocket on port 9090..."
