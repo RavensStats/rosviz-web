@@ -22,7 +22,7 @@ export default function SensorDataPage() {
         Loading...
       </div>
     }>
-      <SensorData />
+      <SensorData robotId={0} />
     </Suspense>
   );
 }

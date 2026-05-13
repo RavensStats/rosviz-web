@@ -10,6 +10,10 @@ interface VoltageData {
   voltage: number;
 }
 
+interface BatteryStatsProps {
+  robotId: number;
+}
+
 interface BatteryStateMessage {
   voltage: number;
   percentage: number;
@@ -23,7 +27,7 @@ interface BatteryStateMessage {
   present: boolean;
 }
 
-const BatteryStats = () => {
+const BatteryStats: React.FC<BatteryStatsProps> = ({ robotId }) => {
   const [voltage, setVoltage] = useState<number | null>(null);
   const [voltageHistory, setVoltageHistory] = useState<VoltageData[]>([]);
   const { subscribe } = useROS({ url: 'ws://localhost:9090' });
@@ -42,11 +46,11 @@ const BatteryStats = () => {
       }
     };
 
-    const unsubscribe = subscribe('/battery_state', 'sensor_msgs/BatteryState', handleBattery);
+    const unsubscribe = subscribe('/battery_state', 'sensor_msgs/BatteryState', handleBattery, robotId);
     return () => {
       unsubscribe();
     };
-  }, [subscribe]);
+  }, [subscribe, robotId]);
 
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', {

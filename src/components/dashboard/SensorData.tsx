@@ -6,6 +6,11 @@ import { ChevronRight } from 'lucide-react';
 import Split from 'split.js';
 import dynamic from 'next/dynamic';
 
+interface SensorDataProps {
+  robotId: number;
+}
+
+
 const RobotModel = dynamic(
   () => import('./sensor-components/RobotModel'),
   {
@@ -66,7 +71,7 @@ const BatteryStats = dynamic(
   }
 );
 
-const SensorData = () => {
+const SensorData: React.FC<SensorDataProps> = ({ robotId }) => {
   const containerRef = useRef(null);
   const col1Ref = useRef(null);
   const col3Ref = useRef(null);
@@ -160,7 +165,7 @@ const SensorData = () => {
                 </Button>
               </div>
               <div className="h-[calc(100%-2rem)]">
-                {shouldRenderModel && <RobotModel />}
+                {shouldRenderModel && <RobotModel robotId={robotId} />}
               </div>
             </div>
           </div>
@@ -173,7 +178,7 @@ const SensorData = () => {
                 </Button>
               </div>
               <div className="h-[calc(100%-2rem)]">
-                <DepthData />
+                <DepthData robotId={robotId} />
               </div>
             </div>
           </div>
@@ -189,7 +194,7 @@ const SensorData = () => {
               </Button>
             </div>
             <div className="h-[calc(100%-2rem)]">
-              <VideoFeed />
+              <VideoFeed robotId={robotId} />
             </div>
           </div>
         </div>
@@ -205,7 +210,7 @@ const SensorData = () => {
                 </Button>
               </div>
               <div className="h-[calc(100%-2rem)]">
-                {shouldRenderPointCloud && <PointCloud />}
+                {shouldRenderPointCloud && <PointCloud robotId={robotId} />}
               </div>
             </div>
           </div>
@@ -218,7 +223,7 @@ const SensorData = () => {
                 </Button>
               </div>
               <div className="h-[calc(100%-2rem)]">
-                <BatteryStats />
+                <BatteryStats robotId={robotId} />
               </div>
             </div>
           </div>

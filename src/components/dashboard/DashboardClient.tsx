@@ -170,7 +170,7 @@ export default function DashboardClient() {
                   <span className="text-gray-400">Loading...</span>
                 </div>
               }>
-                <VideoGrid />
+                <VideoGrid robotId={0} />
               </Suspense>
             </div>
             
@@ -180,7 +180,7 @@ export default function DashboardClient() {
                   <span className="text-gray-400">Loading...</span>
                 </div>
               }>
-                <TelemetryPanel />
+                <TelemetryPanel robotId={0} />
               </Suspense>
             </div>
           </div>
@@ -192,7 +192,7 @@ export default function DashboardClient() {
                 <span className="text-gray-400">Loading Controls...</span>
               </div>
             }>
-              <Controls />
+              <Controls robotId={0} />
             </Suspense>
           </div>
         </div>
@@ -202,7 +202,7 @@ export default function DashboardClient() {
             <span className="text-gray-400">Loading Sensor Data...</span>
           </div>
         }>
-          <SensorData />
+          <SensorData  robotId={0}/>
         </Suspense>
       )}
     </div>

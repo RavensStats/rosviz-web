@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 interface PointCloudViewerProps {
   topic: string;
+  robotId: number;
 }
 
 interface PointCloud2Message {
@@ -30,7 +31,7 @@ interface PointCloud2Message {
   is_dense: boolean;
 }
 
-const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ topic }) => {
+const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ topic, robotId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -230,9 +231,9 @@ const PointCloudViewer: React.FC<PointCloudViewerProps> = ({ topic }) => {
       geometry.computeBoundingSphere();
     };
 
-    const unsubscribe = subscribe(topic, 'sensor_msgs/PointCloud2', handlePointCloud);
+    const unsubscribe = subscribe(topic, 'sensor_msgs/PointCloud2', handlePointCloud, robotId);
     return () => unsubscribe();
-  }, [delayComplete, isLoading, topic, subscribe]);
+  }, [delayComplete, isLoading, topic, subscribe, robotId]);
 
   return (
     <div className="relative w-full h-full bg-[#111111]">
