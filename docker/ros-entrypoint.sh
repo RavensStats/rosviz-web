@@ -35,8 +35,6 @@ trap cleanup SIGINT SIGTERM EXIT
 echo "[entrypoint] Generating $NUM_ROBOTS robot model folders..."
 bash /ros_ws/simulation/models/generate_robots.sh "$NUM_ROBOTS"
 
-# ── Generate the world file from the template ──
-echo "[entrypoint] Generating world file for $NUM_ROBOTS robots..."
 ROBOTS_XML=""
 for i in $(seq 0 $((NUM_ROBOTS-1))); do
     # Spread robots along x axis, alternating sign
