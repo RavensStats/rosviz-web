@@ -1,14 +1,22 @@
-import { EventEmitter } from 'events';
-import type { ROSMessage, ROSCallback, ROSMessageData, ROSMessageBase } from '@/types/ros';
+import { EventEmitter } from "events";
+import type {
+  ROSMessage,
+  ROSCallback,
+  ROSMessageData,
+  ROSMessageBase,
+} from "@/types/ros";
 
 class ROSBridge extends EventEmitter {
   private ws: WebSocket | null = null;
-  private url: string = '';
+  private url: string = "";
   private connected: boolean = false;
-  private subscriptions: Map<string, { messageType: string; callbacks: ROSCallback<unknown>[] }> = new Map();
+  private subscriptions: Map<
+    string,
+    { messageType: string; callbacks: ROSCallback<unknown>[] }
+  > = new Map();
   private connectPromise: Promise<void> | null = null;
 
-  async connect(url: string = 'ws://localhost:9090'): Promise<void> {
+  async connect(url: string = "ws://localhost:9090"): Promise<void> {
     if (this.connected) return;
     if (this.connectPromise) return this.connectPromise;
 
@@ -16,26 +24,26 @@ class ROSBridge extends EventEmitter {
     this.connectPromise = new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.url);
-        this.ws.binaryType = 'arraybuffer';
+        this.ws.binaryType = "arraybuffer";
 
         this.ws.onopen = () => {
-          console.log('Connected to ROSBridge server');
+          console.log("Connected to ROSBridge server");
           this.connected = true;
-          this.emit('connected');
+          this.emit("connected");
           this.resubscribeAll();
           this.connectPromise = null;
           resolve();
         };
 
         this.ws.onclose = () => {
-          console.log('Disconnected from ROSBridge server');
+          console.log("Disconnected from ROSBridge server");
           this.connected = false;
-          this.emit('disconnected');
+          this.emit("disconnected");
           this.connectPromise = null;
         };
 
         this.ws.onerror = (error) => {
-          console.error('ROSBridge WebSocket error:', error);
+          console.error("ROSBridge WebSocket error:", error);
           if (!this.connected) {
             this.connectPromise = null;
             reject(error);
@@ -43,9 +51,8 @@ class ROSBridge extends EventEmitter {
         };
 
         this.ws.onmessage = this.handleMessage.bind(this);
-
       } catch (error) {
-        console.error('Error connecting to ROSBridge:', error);
+        console.error("Error connecting to ROSBridge:", error);
         this.connectPromise = null;
         reject(error);
       }
@@ -57,30 +64,30 @@ class ROSBridge extends EventEmitter {
   private handleMessage(event: MessageEvent) {
     try {
       const data = JSON.parse(event.data);
-      
-      if (data.op === 'service_response') {
+
+      if (data.op === "service_response") {
         this.emit(`response:${data.id}`, data);
         return;
       }
 
-      if (data.op === 'param_response') {
+      if (data.op === "param_response") {
         this.emit(`response:${data.id}`, data);
         return;
       }
 
-      if (data.op === 'publish' && data.topic && data.msg) {
+      if (data.op === "publish" && data.topic && data.msg) {
         const subscription = this.subscriptions.get(data.topic);
         if (subscription) {
           const msg = data.msg as ROSMessageData;
-          if (msg.data && typeof msg.data === 'string') {
+          if (msg.data && typeof msg.data === "string") {
             const binaryData = this.base64ToUint8Array(msg.data);
             msg.data = binaryData;
           }
-          subscription.callbacks.forEach(callback => callback(msg));
+          subscription.callbacks.forEach((callback) => callback(msg));
         }
       }
     } catch (error) {
-      console.error('Error handling message:', error);
+      console.error("Error handling message:", error);
     }
   }
 
@@ -93,13 +100,13 @@ class ROSBridge extends EventEmitter {
       }
       return bytes;
     } catch (error) {
-      console.error('Error converting base64 to Uint8Array:', error);
+      console.error("Error converting base64 to Uint8Array:", error);
       throw error;
     }
   }
 
   private resubscribeAll() {
-    console.log('Resubscribing to all topics...');
+    console.log("Resubscribing to all topics...");
     for (const [topic, { messageType }] of this.subscriptions) {
       this.sendSubscription(topic, messageType);
     }
@@ -107,79 +114,101 @@ class ROSBridge extends EventEmitter {
 
   private sendSubscription(topic: string, messageType: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not ready, queuing subscription');
+      console.warn("WebSocket not ready, queuing subscription");
       return;
     }
 
     const message: ROSMessageBase = {
-      op: 'subscribe',
+      op: "subscribe",
       topic: topic,
-      type: messageType
+      type: messageType,
     };
 
     this.ws.send(JSON.stringify(message));
   }
 
   async getParam(name: string): Promise<any> {
+    const response = await this.callService<{ name: string }, { value?: any }>(
+      "/rosapi/get_param",
+      "rosapi/GetParam",
+      { name },
+      10000,
+    );
+
+    if (response.value === undefined) {
+      throw new Error(`Parameter ${name} not found`);
+    }
+    return response.value;
+  }
+
+  async callService<TReq extends object, TRes = any>(
+    service: string,
+    serviceType: string,
+    args: TReq,
+    timeoutMs: number = 5000,
+  ): Promise<TRes> {
     if (!this.ws || !this.connected) {
-      throw new Error('Not connected to ROS');
+      throw new Error(`Not connected to ROS — cannot call ${service}`);
     }
 
-    return new Promise((resolve, reject) => {
-      const id = Math.random().toString(36).substr(2, 9);
-      const timeoutId = setTimeout(() => {
+    return new Promise<TRes>((resolve, reject) => {
+      const id = Math.random().toString(36).slice(2, 11);
+
+      const timer = setTimeout(() => {
         this.removeAllListeners(`response:${id}`);
-        reject(new Error('Parameter request timed out'));
-      }, 10000);
+        reject(
+          new Error(`Service call ${service} timed out after ${timeoutMs}ms`),
+        );
+      }, timeoutMs);
 
       this.once(`response:${id}`, (response: any) => {
-        clearTimeout(timeoutId);
-        console.log('Parameter response:', response);
+        clearTimeout(timer);
 
-        if (response.op === 'service_response') {
-          if (response.values && response.values.value) {
-            resolve(response.values.value);
-          } else {
-            reject(new Error('Parameter not found'));
-          }
-        } else if (response.op === 'param_response') {
-          if (response.value !== undefined) {
-            resolve(response.value);
-          } else {
-            reject(new Error('Parameter not found'));
-          }
-        } else {
-          reject(new Error('Invalid response format'));
+        // rosbridge service_response shape:
+        //   { op: 'service_response', id, service, values, result }
+        // result is true on success, false on failure.
+        if (response.result === false) {
+          const msg =
+            response.values?.message ?? `Service ${service} returned failure`;
+          reject(new Error(msg));
+          return;
         }
+
+        resolve(response.values as TRes);
       });
 
       const request = {
-        op: 'call_service',
-        id: id,
-        service: '/rosapi/get_param',
-        args: { name: name }
+        op: "call_service",
+        id,
+        service,
+        type: serviceType,
+        args,
       };
 
-      if (this.ws) {
-        this.ws.send(JSON.stringify(request));
-        console.log('Parameter request sent:', request);
-      } else {
-        clearTimeout(timeoutId);
-        reject(new Error('WebSocket not available'));
+      try {
+        this.ws!.send(JSON.stringify(request));
+      } catch (err) {
+        clearTimeout(timer);
+        this.removeAllListeners(`response:${id}`);
+        reject(err);
       }
     });
   }
 
-  subscribe<T>(topic: string, messageType: string, callback: ROSCallback<T>): () => void {
+  subscribe<T>(
+    topic: string,
+    messageType: string,
+    callback: ROSCallback<T>,
+  ): () => void {
     console.log(`Subscribing to ${topic} (${messageType})`);
-    
+
     const subscription = this.subscriptions.get(topic);
     if (subscription) {
       subscription.callbacks.push(callback as ROSCallback<unknown>);
     } else {
       this.subscriptions.set(topic, {
         messageType,
-        callbacks: [callback as ROSCallback<unknown>]
+        callbacks: [callback as ROSCallback<unknown>],
       });
       if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
         this.sendSubscription(topic, messageType);
@@ -189,14 +218,16 @@ class ROSBridge extends EventEmitter {
     return () => {
       const sub = this.subscriptions.get(topic);
       if (sub) {
-        sub.callbacks = sub.callbacks.filter(cb => cb !== callback);
+        sub.callbacks = sub.callbacks.filter((cb) => cb !== callback);
         if (sub.callbacks.length === 0) {
           this.subscriptions.delete(topic);
           if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-              op: 'unsubscribe',
-              topic: topic
-            }));
+            this.ws.send(
+              JSON.stringify({
+                op: "unsubscribe",
+                topic: topic,
+              }),
+            );
           }
         }
       }
@@ -207,17 +238,17 @@ class ROSBridge extends EventEmitter {
     if (!this.ws || !this.connected) return false;
 
     const rosMessage: ROSMessage = {
-      op: 'publish',
+      op: "publish",
       topic: topic,
       type: messageType,
-      msg: message as unknown as ROSMessageData
+      msg: message as unknown as ROSMessageData,
     };
 
     try {
       this.ws.send(JSON.stringify(rosMessage));
       return true;
     } catch (error) {
-      console.error('Error publishing message:', error);
+      console.error("Error publishing message:", error);
       return false;
     }
   }

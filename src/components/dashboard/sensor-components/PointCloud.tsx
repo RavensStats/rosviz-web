@@ -3,8 +3,12 @@
 import React from 'react';
 import PointCloudViewer from './PointCloudViewer';
 
-const PointCloud = () => {
-  return <PointCloudViewer topic="/scan/points" />;
+interface PointCloudProps {
+  robotId: number;
+}
+
+const PointCloud: React.FC<PointCloudProps> = ({ robotId }) => {
+  return <PointCloudViewer topic="/scan/points" robotId={robotId} />;
 };
 
 export default PointCloud;

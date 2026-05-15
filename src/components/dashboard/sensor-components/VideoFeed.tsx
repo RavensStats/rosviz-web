@@ -10,6 +10,11 @@ import {
 } from 'lucide-react';
 import { useROS } from '@/hooks/useROS';
 
+interface VideoFeedProps {
+  robotId: number;
+}
+
+
 interface TelemetryData {
   altitude: number;
   heading: number;
@@ -22,7 +27,7 @@ interface TelemetryData {
   distanceFromHome: number;
 }
 
-const VideoFeed = () => {
+const VideoFeed: React.FC<VideoFeedProps> = ({ robotId }) => {
   const [telemetry, setTelemetry] = useState<TelemetryData>({
     altitude: 0,
     heading: 0,
@@ -224,7 +229,7 @@ const VideoFeed = () => {
             processingFrame.current = false;
             setError(err instanceof Error ? err.message : 'Error loading image');
           }
-        })
+        }, robotId)
       );
     }
 
@@ -265,7 +270,7 @@ const VideoFeed = () => {
         });
         
         lastTelemetryUpdate.current = now;
-      })
+      }, robotId)
     );
 
     // Use Z position from odom as altitude for ground robots
@@ -275,7 +280,7 @@ const VideoFeed = () => {
       unsubscribers.forEach(unsub => unsub());
       cancelAnimationFrame(animationFrameId.current);
     };
-  }, [subscribe, isConnected, renderFrame]);
+  }, [subscribe, isConnected, renderFrame, robotId]);
 
   return (
     <div className="w-full h-full bg-black rounded-sm relative overflow-hidden">
