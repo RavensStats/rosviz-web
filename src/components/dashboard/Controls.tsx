@@ -33,6 +33,11 @@ interface Waypoint {
   label: string;
 }
 
+interface ControlsProps {
+  robotId: number;
+}
+
+
 interface TwistMessage {
   linear: {
     x: number;
@@ -57,7 +62,7 @@ interface SupplyMessage {
   current?: number[];
 }
 
-export default function Controls() {
+export default function Controls({robotId}: ControlsProps) {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([
     { id: '1', lat: "40.7128", lng: "-74.0060", label: "Point A" },
     { id: '2', lat: "40.7580", lng: "-73.9855", label: "Point B" }
@@ -118,7 +123,7 @@ export default function Controls() {
     if (!isConnected) return;
     
     setCurrentTwist(twist);
-    publish('/cmd_vel', 'geometry_msgs/Twist', twist);
+    publish('/cmd_vel', 'geometry_msgs/Twist', twist, robotId);
   };
   
   // Stop movement
@@ -231,12 +236,12 @@ export default function Controls() {
         const percentage = Math.min(100, Math.max(0, ((message.voltage - 9) / (12.6 - 9)) * 100));
         setBatteryLevel(percentage);
       }
-    });
+    }, robotId);
     
     return () => {
       batteryUnsubscribe();
     };
-  }, [isConnected, subscribe]);
+  }, [isConnected, subscribe, robotId]);
   
   // Cleanup effect to ensure we stop sending commands when component unmounts
   useEffect(() => {

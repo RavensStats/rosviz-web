@@ -14,6 +14,11 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+import RobotSelector from "@/components/ui/RobotSelector";
+import { useDiscoveredRobots } from "@/hooks/useDiscoveredRobots";
+import { useRobotSelection } from "@/hooks/useRobotSelection";
+import { useROS } from "@/hooks/useROS";
+
 const TelemetryPanel = dynamic(
   () => import('./TelemetryPanel'),
   {
@@ -67,6 +72,21 @@ export default function DashboardClient() {
   const leftSplitRef = useRef(null);
   const [activeTab, setActiveTab] = useState('dashboard');
 
+
+  const { isConnected } = useROS();
+  const robots = useDiscoveredRobots();
+  const { selectedRobotId, selectRobot } = useRobotSelection();
+  const hasRobot = selectedRobotId !== null;
+
+  // Keep a valid robot selected: pick the first discovered robot on startup,
+  // and recover if the currently-selected robot leaves the network.
+  useEffect(() => {
+    if (robots.length === 0) return;
+    if (selectedRobotId === null || !robots.includes(selectedRobotId)) {
+      selectRobot(robots[0]);
+    }
+  }, [robots, selectedRobotId, selectRobot]);
+
   useEffect(() => {
     let mainSplit: Split.Instance;
     let leftSplit: Split.Instance;
@@ -107,7 +127,7 @@ export default function DashboardClient() {
       mainSplit?.destroy();
       leftSplit?.destroy();
     };
-  }, [activeTab]);
+  }, [activeTab, hasRobot]);
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#1a1a1a]">
@@ -164,11 +184,22 @@ export default function DashboardClient() {
           </Button>
         </div>
         <div className="flex-1" />
-        <span className="text-gray-400 text-sm">TurtleBot3 Control System</span>
-      </div>
+          <RobotSelector
+            robots={robots}
+            selectedRobotId={selectedRobotId}
+            onSelect={selectRobot}
+            isConnected={isConnected}
+          />
+          <span className="text-gray-600 mx-2">|</span>
+          <span className="text-gray-400 text-sm">TurtleBot3 Control System</span>
+        </div>
 
       {/* Main Content */}
-      {activeTab === 'dashboard' ? (
+      {!hasRobot ? (
+        <div className="h-[calc(100vh-3.1rem)] flex items-center justify-center bg-[#1a1a1a] text-gray-400">
+          {isConnected ? 'Waiting for robots…' : 'Connecting to ROS…'}
+        </div>
+      ) : activeTab === 'dashboard' ? (
         <div className="h-[calc(100vh-4.1rem)] p-1 flex" ref={mainSplitRef}>
           {/* Left Panel */}
           <div className="left-panel flex flex-col h-full" ref={leftSplitRef}>
@@ -178,7 +209,7 @@ export default function DashboardClient() {
                   <span className="text-gray-400">Loading...</span>
                 </div>
               }>
-                <VideoGrid />
+                <VideoGrid robotId={selectedRobotId} />
               </Suspense>
             </div>
             
@@ -188,7 +219,7 @@ export default function DashboardClient() {
                   <span className="text-gray-400">Loading...</span>
                 </div>
               }>
-                <TelemetryPanel />
+                <TelemetryPanel robotId={selectedRobotId} />
               </Suspense>
             </div>
           </div>
@@ -200,7 +231,7 @@ export default function DashboardClient() {
                 <span className="text-gray-400">Loading Controls...</span>
               </div>
             }>
-              <Controls />
+              <Controls robotId={selectedRobotId} />
             </Suspense>
           </div>
         </div>
@@ -210,7 +241,7 @@ export default function DashboardClient() {
             <span className="text-gray-400">Loading Sensor Data...</span>
           </div>
         }>
-          <SensorData />
+          <SensorData  robotId={selectedRobotId}/>
         </Suspense>
       )}
     </div>

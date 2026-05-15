@@ -9,6 +9,11 @@ import { useROS } from '@/hooks/useROS';
 import type { Odometry } from '@/types/ros';
 import rosbridge from '@/lib/rosbridge';
 
+interface RobotModelProps {
+  robotId: number;
+}
+
+
 interface TransformMsg {
   header: {
     frame_id: string;
@@ -20,7 +25,7 @@ interface TransformMsg {
   };
 }
 
-const RobotModel = () => {
+const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -204,26 +209,27 @@ const RobotModel = () => {
         return group;
       };
 
-      createLinkGroup('odom');
-      createLinkGroup('base_footprint');
-      createLinkGroup('base_link');
-      createLinkGroup('base_scan');
-      createLinkGroup('imu_link');
-      createLinkGroup('wheel_left_link');
-      createLinkGroup('wheel_right_link');
-      createLinkGroup('caster_back_left_link');
-      createLinkGroup('caster_back_right_link');
-      createLinkGroup('camera_link');
-      createLinkGroup('camera_rgb_frame');
-      createLinkGroup('camera_depth_frame');
-      createLinkGroup('camera_rgb_optical_frame');
-      createLinkGroup('camera_depth_optical_frame');
+      const prefix = `tb3_${robotId}`;
 
-      const baseLinkGroup = linkGroupsRef.current['base_link'];
+      createLinkGroup(`${prefix}/odom`);
+      createLinkGroup(`${prefix}/base_footprint`);
+      createLinkGroup(`${prefix}/base_link`);
+      createLinkGroup(`${prefix}/base_scan`);
+      createLinkGroup(`${prefix}/imu_link`);
+      createLinkGroup(`${prefix}/wheel_left_link`);
+      createLinkGroup(`${prefix}/wheel_right_link`);
+      createLinkGroup(`${prefix}/caster_back_left_link`);
+      createLinkGroup(`${prefix}/caster_back_right_link`);
+      createLinkGroup(`${prefix}/camera_link`);
+      createLinkGroup(`${prefix}/camera_rgb_frame`);
+      createLinkGroup(`${prefix}/camera_depth_frame`);
+      createLinkGroup(`${prefix}/camera_rgb_optical_frame`);
+      createLinkGroup(`${prefix}/camera_depth_optical_frame`);
+
+      const baseLinkGroup = linkGroupsRef.current[`${prefix}/base_link`];
       if (baseLinkGroup) {
         baseLinkGroup.add(robot);
         robotModelRef.current = robot;
-        
         originalPositionRef.current = baseLinkGroup.position.clone();
       }
 
@@ -350,30 +356,34 @@ const RobotModel = () => {
   useEffect(() => {
     if (!delayComplete) return;
 
+    const prefix = `tb3_${robotId}/`;
+
     const unsubscribeOdom = subscribe<Odometry>(
       '/odom',
       'nav_msgs/Odometry',
       (message) => {
-        // Update the UI display only
         setRobotState(message);
-      }
+      },
+      robotId
     );
 
-    // Let TF handle all the model updates
+    // /tf is SHARED — no robotId. Filter incoming transforms by prefix.
     const unsubscribeTF = subscribe<{ transforms: TransformMsg[] }>(
       '/tf',
       'tf2_msgs/TFMessage',
       (message) => {
         const tfUpdates: Record<string, boolean> = {};
-        
+
         message.transforms.forEach(transform => {
-          // Skip duplicate updates for the same child frame
+          // Only process transforms whose child frame belongs to THIS robot.
+          if (!transform.child_frame_id.startsWith(prefix)) return;
+
           if (tfUpdates[transform.child_frame_id]) return;
           tfUpdates[transform.child_frame_id] = true;
-          
+
           const parentGroup = linkGroupsRef.current[transform.header.frame_id];
           const childGroup = linkGroupsRef.current[transform.child_frame_id];
-          
+
           if (parentGroup && childGroup) {
             const newPos = new THREE.Vector3(
               transform.transform.translation.x,
@@ -381,12 +391,10 @@ const RobotModel = () => {
               transform.transform.translation.z
             );
 
-            // Only update position if it's not extremely far away
             if (newPos.length() < 100) {
               childGroup.position.copy(newPos);
-              
-              // Keep track of base_link position for telemetry
-              if (transform.child_frame_id === 'base_link') {
+
+              if (transform.child_frame_id === `${prefix}base_link`) {
                 lastPositionRef.current.copy(newPos);
               }
             }
@@ -406,7 +414,7 @@ const RobotModel = () => {
       unsubscribeOdom();
       unsubscribeTF();
     };
-  }, [delayComplete, subscribe]);
+  }, [delayComplete, subscribe, robotId]);
 
   return (
     <div className="relative w-full h-full bg-[#1a1a1a] overflow-hidden">

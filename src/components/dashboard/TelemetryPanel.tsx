@@ -21,6 +21,12 @@ interface TelemetryData {
   };
 }
 
+interface TelemetryPanelProps {
+  robotId: number;
+}
+
+
+
 type UnsubscribeFn = () => void;
 
 interface IMUMessage {
@@ -50,7 +56,7 @@ interface RangeMessage {
   max_range: number;
 }
 
-const TelemetryPanel = () => {
+const TelemetryPanel: React.FC<TelemetryPanelProps> = ({robotId}) => {
   const [telemetryData, setTelemetryData] = useState<TelemetryData[]>([
     {
       label: 'Position X',
@@ -312,7 +318,7 @@ const TelemetryPanel = () => {
         }
       };
 
-      const unsubscribe = subscribe(topic, messageType, handleMessage);
+      const unsubscribe = subscribe(topic, messageType, handleMessage, robotId);
       subscriptionsRef.current.push(unsubscribe);
     }
 
@@ -323,7 +329,7 @@ const TelemetryPanel = () => {
       subscriptionsRef.current = [];
       isSubscribedRef.current = false;
     };
-  }, [isConnected, subscribe, handleIMUUpdate, handleOdometryUpdate, handleSonarUpdate]);
+  }, [isConnected, subscribe, handleIMUUpdate, handleOdometryUpdate, handleSonarUpdate, robotId]);
 
   const getStatusColor = (data: TelemetryData): string => {
     if (data.label === 'Status') {

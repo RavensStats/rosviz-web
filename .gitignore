@@ -67,3 +67,7 @@ __pycache__/
 
 # Generated models folders
 simulation/models/turtlebot3_waffle_*
+
+# Tauri
+src-tauri/gen
+src-tauri/target

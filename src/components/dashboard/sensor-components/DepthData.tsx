@@ -5,6 +5,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } fro
 import { Ruler, ArrowDown, TrendingUp, Focus, Maximize2 } from 'lucide-react';
 import { useROS } from '@/hooks/useROS';
 
+interface DepthDataProps {
+  robotId: number;
+}
 interface DepthPoint {
   timestamp: number;
   depth: number;
@@ -39,7 +42,7 @@ interface LaserScan {
   intensities: number[];
 }
 
-const DepthData = () => {
+const DepthData: React.FC<DepthDataProps> = ({ robotId }) => {
   const [depthData, setDepthData] = useState<DepthPoint[]>([]);
   const [stats, setStats] = useState<DepthStats>({
     currentDepth: 0,
@@ -118,9 +121,9 @@ const DepthData = () => {
       lastUpdateTimeRef.current = now;
     };
 
-    const unsubscribe = subscribe('/scan', 'sensor_msgs/LaserScan', handleScan);
+    const unsubscribe = subscribe('/scan', 'sensor_msgs/LaserScan', handleScan, robotId);
     return () => unsubscribe();
-  }, [subscribe]);
+  }, [subscribe, robotId]);
 
   return (
     <div className="w-full h-full bg-[#2a2a2a] rounded-sm p-3 flex flex-col gap-3">

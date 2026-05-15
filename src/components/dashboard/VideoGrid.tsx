@@ -9,12 +9,13 @@ interface ViewProps {
   index: number;
   topic: string;
   label: string;
+  robotId: number;
   isMaximized: boolean;
   onMaximize: (index: number) => void;
   onMinimize: () => void;
 }
 
-const View: React.FC<ViewProps> = ({ index, topic, label, isMaximized, onMaximize, onMinimize }) => {
+const View: React.FC<ViewProps> = ({ index, topic, label, robotId, isMaximized, onMaximize, onMinimize }) => {
   return (
     <div 
       className={`bg-black rounded-sm overflow-hidden ${
@@ -48,13 +49,18 @@ const View: React.FC<ViewProps> = ({ index, topic, label, isMaximized, onMaximiz
         </div>
       </div>
       <div className="w-full h-[calc(100%-1.5rem)]">
-        <VideoStream topic={topic} />
+        <VideoStream topic={topic} robotId={robotId} />
       </div>
     </div>
   );
 };
 
-const VideoGrid = () => {
+interface VideoGridProps {
+  robotId: number;
+}
+
+const VideoGrid: React.FC<VideoGridProps> = ({ robotId }) => {
+
   const [isMounted, setIsMounted] = React.useState(false);
   const [maximizedView, setMaximizedView] = React.useState<number | null>(null);
 
@@ -97,6 +103,7 @@ const VideoGrid = () => {
               index={index}
               topic={view.topic}
               label={view.label}
+              robotId={robotId}
               isMaximized={maximizedView === index}
               onMaximize={handleMaximize}
               onMinimize={handleMinimize}

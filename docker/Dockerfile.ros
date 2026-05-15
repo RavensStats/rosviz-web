@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-image-transport \
     ros-humble-rosbridge-suite \
     ros-humble-xacro \
+    ros-humble-topic-tools \
     # ── Intel RealSense description (meshes/URDF for D435) ──
     ros-humble-realsense2-description \
     # ── Python ──
