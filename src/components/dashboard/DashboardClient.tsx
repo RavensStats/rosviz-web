@@ -209,7 +209,7 @@ export default function DashboardClient() {
                   <span className="text-gray-400">Loading...</span>
                 </div>
               }>
-                <VideoGrid robotId={selectedRobotId} />
+                <VideoGrid key={selectedRobotId} robotId={selectedRobotId} />
               </Suspense>
             </div>
             
@@ -219,7 +219,7 @@ export default function DashboardClient() {
                   <span className="text-gray-400">Loading...</span>
                 </div>
               }>
-                <TelemetryPanel robotId={selectedRobotId} />
+                <TelemetryPanel key={selectedRobotId} robotId={selectedRobotId} />
               </Suspense>
             </div>
           </div>
@@ -231,7 +231,7 @@ export default function DashboardClient() {
                 <span className="text-gray-400">Loading Controls...</span>
               </div>
             }>
-              <Controls robotId={selectedRobotId} />
+              <Controls key={selectedRobotId} robotId={selectedRobotId} />
             </Suspense>
           </div>
         </div>
@@ -241,7 +241,7 @@ export default function DashboardClient() {
             <span className="text-gray-400">Loading Sensor Data...</span>
           </div>
         }>
-          <SensorData  robotId={selectedRobotId}/>
+          <SensorData key={selectedRobotId} robotId={selectedRobotId}/>
         </Suspense>
       )}
     </div>
