@@ -260,6 +260,16 @@ npm run dev
 
 </details>
 
+## Tauri Development
+
+With Tauri you can develop and build the desktop version of this app.
+
+1. Install system dependencies and Rust, see [Prerequisites | Tauri](https://v2.tauri.app/start/prerequisites/#linux).
+2. Install dependencies: `npm install`
+3. Run the app: `npm run tauri dev`
+
+Run `npm run tauri build` to build the desktop application (deb, rpm, and AppImage).
+
 ## Project structure
 
 ```
