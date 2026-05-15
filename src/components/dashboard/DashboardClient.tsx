@@ -19,6 +19,11 @@ import { useDiscoveredRobots } from "@/hooks/useDiscoveredRobots";
 import { useRobotSelection } from "@/hooks/useRobotSelection";
 import { useROS } from "@/hooks/useROS";
 
+import RobotSelector from "@/components/ui/RobotSelector";
+import { useDiscoveredRobots } from "@/hooks/useDiscoveredRobots";
+import { useRobotSelection } from "@/hooks/useRobotSelection";
+import { useROS } from "@/hooks/useROS";
+
 const TelemetryPanel = dynamic(
   () => import('./TelemetryPanel'),
   {
@@ -71,6 +76,21 @@ export default function DashboardClient() {
   const mainSplitRef = useRef(null);
   const leftSplitRef = useRef(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+
+  const { isConnected } = useROS();
+  const robots = useDiscoveredRobots();
+  const { selectedRobotId, selectRobot } = useRobotSelection();
+  const hasRobot = selectedRobotId !== null;
+
+  // Keep a valid robot selected: pick the first discovered robot on startup,
+  // and recover if the currently-selected robot leaves the network.
+  useEffect(() => {
+    if (robots.length === 0) return;
+    if (selectedRobotId === null || !robots.includes(selectedRobotId)) {
+      selectRobot(robots[0]);
+    }
+  }, [robots, selectedRobotId, selectRobot]);
 
 
   const { isConnected } = useROS();

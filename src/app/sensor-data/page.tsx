@@ -24,7 +24,6 @@ export default function SensorDataPage() {
   const robots = useDiscoveredRobots();
   const { selectedRobotId, selectRobot } = useRobotSelection();
 
-  // Same auto-select / recovery logic as the main dashboard.
   useEffect(() => {
     if (robots.length === 0) return;
     if (selectedRobotId === null || !robots.includes(selectedRobotId)) {
