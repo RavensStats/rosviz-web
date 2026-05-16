@@ -43,6 +43,7 @@ export default function FleetOverview() {
   }, [isConnected, robotIds]);
 
   const onlineCount = robotIds.length;
+  const offlineCount = 0;
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#1a1a1a]">
@@ -80,6 +81,10 @@ export default function FleetOverview() {
             <div className="flex justify-between text-sm">
               <span className="text-gray-400">Online</span>
               <span className="text-green-500 font-bold">{onlineCount}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Offline</span>
+              <span className="text-red-500 font-bold">{offlineCount}</span>
             </div>
           </div>
           {!isConnected && (
