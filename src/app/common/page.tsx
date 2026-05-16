@@ -3,19 +3,17 @@
 import Link from 'next/link';
 import { Grid, Eye, AlertTriangle, AlertCircle } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useDiscoveredRobots } from '@/hooks/useDiscoveredRobots';
 
-// const MapView = dynamic(() => import('@/components/dashboard/MapView'), { ssr: false });
-// Note: It depends on what we want to show. Get more feedback here
-const FleetMap = dynamic(() => import('@/components/dashboard/Fleet2DMap'), { ssr: false });
+// const FleetMap = dynamic(() => import('@/components/dashboard/Fleet2DMap'), { ssr: false });
+const MapView = dynamic(() => import('@/components/dashboard/MapView'), { ssr: false });
 const PointCloud = dynamic(() => import('@/components/dashboard/sensor-components/PointCloud'), { ssr: false });
 
-{/* Important: These arent the actual robots, but since the namespace matter is still WIP/TODO these are just placeholders for now. This will DEFINITELY need to get replaced later though! */}
-const ROBOTS = [
-  { id: 'tb3_0', name: 'TurtleBot 0', color: '#ff0000', label: 'TB3 0', online: true, battery_percentage: 87 },
-  { id: 'tb3_1', name: 'TurtleBot 1', color: '#0000FF', label: 'TB3 1', online: true,  battery_percentage: 62 },
-  { id: 'tb3_2', name: 'TurtleBot 2', color: '#10df10', label: 'TB3 2', online: false, battery_percentage: 12 },
-];
+function getRobotColor(id: number): string {
+  const hue = (id * 137.5) % 360;
+  return `hsl(${hue}, 80%, 55%)`;
+}
 
 const alerts = [
   { ts: "09.04.2026 15:55", text: "Possible Collision Detected", variant: "critical" },
@@ -24,11 +22,22 @@ const alerts = [
 ];
 
 export default function CommonPage() {
-  const [coords, setCoords] = useState(
-    Object.fromEntries(ROBOTS.map(r => [r.id, { lat: '', lon: '' }]))
-  );
+  const robotIds = useDiscoveredRobots();
+  const [coords, setCoords] = useState<Record<number, { lat: string; lon: string }>>({});
 
-  const handleCoordChange = (id: string, field: 'lat' | 'lon', value: string) => {
+  useEffect(() => {
+    setCoords(prev => {
+      const next = { ...prev };
+      for (const id of robotIds) {
+        if (!(id in next)) {
+          next[id] = { lat: '', lon: '' };
+        }
+      }
+      return next;
+    });
+  }, [robotIds]);
+
+  const handleCoordChange = (id: number, field: 'lat' | 'lon', value: string) => {
     setCoords(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
   };
 
@@ -65,15 +74,14 @@ export default function CommonPage() {
         <div className="flex gap-2 min-h-0" style={{ flex: '3' }}>
           {/* 2D Map */}
           <div className="flex-[2] min-w-0 min-h-0">
-            {/* <MapView /> Once again, depends on what we want to use. TODO */}
-            <FleetMap />
+            <MapView />
           </div>
 
-          {/* Point Cloud */}
+          {/* Point Cloud (for now I only let it display one out of 3 robots points)*/}
           <div className="flex-[1.5] min-w-0 bg-[#1e1e1e] rounded-sm border border-[#333333] flex flex-col p-2">
             <span className="text-[#00a5ff] text-sm font-semibold mb-2 shrink-0">Point Cloud</span>
             <div className="flex-1 min-h-0">
-              <PointCloud />
+              {robotIds.length > 0 && <PointCloud robotId={robotIds[0]} />}
             </div>
           </div>
 
@@ -81,25 +89,32 @@ export default function CommonPage() {
           <div className="w-96 shrink-0 bg-[#1e1e1e] rounded-sm border border-[#333333] flex flex-col p-2 gap-2">
             <span className="text-[#00a5ff] text-sm font-semibold shrink-0">Common Controls</span>
             <div className="flex-1 flex flex-col gap-2">
-              {ROBOTS.map(robot => (
-                <div key={robot.id} className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: robot.color }} />
-                  <input
-                    type="text"
-                    placeholder="Lat"
-                    value={coords[robot.id].lat}
-                    onChange={e => handleCoordChange(robot.id, 'lat', e.target.value)}
-                    className="w-0 flex-1 h-7 bg-[#2a2a2a] border border-[#333333] rounded px-2 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#00a5ff]"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Lon"
-                    value={coords[robot.id].lon}
-                    onChange={e => handleCoordChange(robot.id, 'lon', e.target.value)}
-                    className="w-0 flex-1 h-7 bg-[#2a2a2a] border border-[#333333] rounded px-2 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#00a5ff]"
-                  />
+              {robotIds.length === 0 ? (
+                <div className="flex items-center justify-center flex-1 text-gray-500 text-xs">
+                  Discovering robots...
                 </div>
-              ))}
+              ) : (
+                robotIds.map(id => (
+                  <div key={id} className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getRobotColor(id) }} />
+                    <span className="text-gray-400 text-xs w-16 shrink-0">TB3 {id}</span>
+                    <input
+                      type="text"
+                      placeholder="Lat"
+                      value={coords[id]?.lat ?? ''}
+                      onChange={e => handleCoordChange(id, 'lat', e.target.value)}
+                      className="w-0 flex-1 h-7 bg-[#2a2a2a] border border-[#333333] rounded px-2 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#00a5ff]"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Lon"
+                      value={coords[id]?.lon ?? ''}
+                      onChange={e => handleCoordChange(id, 'lon', e.target.value)}
+                      className="w-0 flex-1 h-7 bg-[#2a2a2a] border border-[#333333] rounded px-2 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#00a5ff]"
+                    />
+                  </div>
+                ))
+              )}
             </div>
             <button
               onClick={handleMoveAll}
