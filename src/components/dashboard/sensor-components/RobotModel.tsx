@@ -1,18 +1,17 @@
-'use client';
+"use client";
 
-import React, { useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
-import URDFLoader from 'urdf-loader';
-import { useROS } from '@/hooks/useROS';
-import type { Odometry } from '@/types/ros';
-import rosbridge from '@/lib/rosbridge';
+import { useROS } from "@/hooks/useROS";
+import rosbridge from "@/lib/rosbridge";
+import type { Odometry } from "@/types/ros";
+import React, { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader";
+import URDFLoader from "urdf-loader";
 
 interface RobotModelProps {
   robotId: number;
 }
-
 
 interface TransformMsg {
   header: {
@@ -43,8 +42,8 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
   const [robotState, setRobotState] = useState<Odometry | null>(null);
 
   const { isConnected, subscribe } = useROS({
-    url: 'ws://localhost:9090',
-    autoConnect: true
+    url: "ws://localhost:9090",
+    autoConnect: true,
   });
 
   useEffect(() => {
@@ -65,7 +64,7 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
             shininess: 30,
             transparent: true,
             opacity: 0.9,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
           });
           const mesh = new THREE.Mesh(geometry, material);
 
@@ -74,8 +73,8 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
             new THREE.LineBasicMaterial({
               color: 0xffffff,
               transparent: true,
-              opacity: 0.2
-            })
+              opacity: 0.2,
+            }),
           );
           mesh.add(wireframe);
 
@@ -85,7 +84,7 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
           resolve(mesh);
         },
         undefined,
-        reject
+        reject,
       );
     });
   };
@@ -94,83 +93,108 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
     if (!sceneRef.current) return;
 
     try {
-      console.log('[RobotModel] Loading URDF from robot_description param...');
-      let paramResponse;
-      try {
-        paramResponse = await rosbridge.getParam('/robot_state_publisher:robot_description');
-      } catch {
-        console.log('[RobotModel] Trying alternate param path...');
-        paramResponse = await rosbridge.getParam('/robot_description');
-      }
-      console.log('[RobotModel] Param response type:', typeof paramResponse);
+      console.log("[RobotModel] Loading URDF from robot_description param...");
 
-      let urdfContent = paramResponse;
-      if (typeof paramResponse === 'object' && paramResponse !== null) {
-        if ('value' in paramResponse) {
-          urdfContent = paramResponse.value;
-        } else if ('values' in paramResponse && 'value' in paramResponse.values) {
-          urdfContent = paramResponse.values.value;
+      const paramCandidates = [
+        `/tb3_${robotId}/rsp_tb3_${robotId}:robot_description`,
+        `/tb3_${robotId}/robot_state_publisher:robot_description`,
+        "/robot_state_publisher:robot_description",
+        "/robot_description",
+      ];
+
+      let urdfContent: unknown = null;
+      let resolvedParam: string | null = null;
+
+      for (const paramName of paramCandidates) {
+        try {
+          const response = await rosbridge.getParam(paramName);
+          const maybeValue =
+            typeof response === "object" && response !== null
+              ? "value" in response
+                ? response.value
+                : "values" in response &&
+                    typeof (response as { values?: unknown }).values === "object" &&
+                    (response as { values?: { value?: unknown } }).values &&
+                    "value" in (response as { values: { value?: unknown } }).values
+                  ? (response as { values: { value?: unknown } }).values.value
+                  : response
+              : response;
+
+          if (typeof maybeValue === "string" && maybeValue.trim().length > 0) {
+            urdfContent = maybeValue;
+            resolvedParam = paramName;
+            break;
+          }
+        } catch {
+          // Try next candidate path.
         }
       }
 
-      if (!urdfContent || typeof urdfContent !== 'string') {
-        console.error('[RobotModel] Invalid URDF content:', typeof urdfContent);
-        throw new Error('Invalid URDF content');
+      if (typeof urdfContent !== "string" || urdfContent.trim().length === 0) {
+        throw new Error(
+          `[RobotModel] Could not resolve non-empty robot_description from: ${paramCandidates.join(", ")}`,
+        );
       }
-      console.log('[RobotModel] URDF content length:', urdfContent.length);
+      console.log("[RobotModel] Resolved robot_description from:", resolvedParam);
+      console.log("[RobotModel] URDF content length:", urdfContent.length);
 
-      const cleanedXML = urdfContent.replace(/\\r\\n/g, '\n')
-                                  .replace(/\\r/g, '')
-                                  .replace(/\\n/g, '\n')
-                                  .replace(/\\"/g, '"')
-                                  .replace(/\\\\/g, '\\')
-                                  .replace(/^"|"$/g, '');
+      const cleanedXML = urdfContent
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\r/g, "")
+        .replace(/\\n/g, "\n")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\")
+        .replace(/^"|"$/g, "");
 
       const loader = new URDFLoader();
-      
+
       loader.loadMeshCb = async (path, manager, done) => {
-        console.log('[RobotModel] Loading mesh:', path);
+        console.log("[RobotModel] Loading mesh:", path);
         try {
           let mesh: THREE.Object3D;
 
-          if (path.includes('waffle_base')) {
-            mesh = await loadSTLMesh('/meshes/turtlebot3/bases/waffle_base.stl', 0x333333);
-          } else if (path.includes('burger_base')) {
-            mesh = await loadSTLMesh('/meshes/turtlebot3/bases/burger_base.stl', 0x333333);
-          } else if (path.includes('waffle_pi_base')) {
-            mesh = await loadSTLMesh('/meshes/turtlebot3/bases/waffle_pi_base.stl', 0x333333);
-          } else if (path.includes('lds')) {
-            mesh = await loadSTLMesh('/meshes/turtlebot3/sensors/lds.stl', 0x22c55e);
-          } else if (path.includes('tire') || path.includes('left_tire') || path.includes('right_tire')) {
+          if (path.includes("waffle_base")) {
+            mesh = await loadSTLMesh("/meshes/turtlebot3/bases/waffle_base.stl", 0x333333);
+          } else if (path.includes("burger_base")) {
+            mesh = await loadSTLMesh("/meshes/turtlebot3/bases/burger_base.stl", 0x333333);
+          } else if (path.includes("waffle_pi_base")) {
+            mesh = await loadSTLMesh("/meshes/turtlebot3/bases/waffle_pi_base.stl", 0x333333);
+          } else if (path.includes("lds")) {
+            mesh = await loadSTLMesh("/meshes/turtlebot3/sensors/lds.stl", 0x22c55e);
+          } else if (
+            path.includes("tire") ||
+            path.includes("left_tire") ||
+            path.includes("right_tire")
+          ) {
             // Both wheels use the same tire mesh in the URDF
-            mesh = await loadSTLMesh('/meshes/turtlebot3/wheels/left_tire.stl', 0x111111);
-          } else if (path.includes('r200') || path.includes('astra')) {
+            mesh = await loadSTLMesh("/meshes/turtlebot3/wheels/left_tire.stl", 0x111111);
+          } else if (path.includes("r200") || path.includes("astra")) {
             const geometry = new THREE.BoxGeometry(0.02, 0.08, 0.02);
             const material = new THREE.MeshPhongMaterial({
               color: 0x0066ff,
               transparent: true,
-              opacity: 0.9
+              opacity: 0.9,
             });
             mesh = new THREE.Mesh(geometry, material);
           } else {
-            console.log('[RobotModel] Unknown mesh, using fallback:', path);
+            console.log("[RobotModel] Unknown mesh, using fallback:", path);
             const geometry = new THREE.BoxGeometry(0.03, 0.03, 0.03);
             const material = new THREE.MeshPhongMaterial({
               color: 0x666666,
               transparent: true,
-              opacity: 0.8
+              opacity: 0.8,
             });
             mesh = new THREE.Mesh(geometry, material);
           }
 
           done(mesh);
         } catch (error) {
-          console.error('[RobotModel] Mesh load error:', error);
+          console.error("[RobotModel] Mesh load error:", error);
           const geometry = new THREE.BoxGeometry(0.05, 0.05, 0.05);
           const material = new THREE.MeshPhongMaterial({
             color: 0xff0000,
             transparent: true,
-            opacity: 0.7
+            opacity: 0.7,
           });
           const mesh = new THREE.Mesh(geometry, material);
           done(mesh);
@@ -178,34 +202,40 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
       };
 
       const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(cleanedXML, 'text/xml');
-      
-      if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
-        throw new Error('XML parsing failed');
+      const xmlDoc = parser.parseFromString(cleanedXML, "text/xml");
+
+      const parserErrors = xmlDoc.getElementsByTagName("parsererror");
+
+      if (parserErrors.length > 0) {
+        console.error("[RobotModel] XML parser error:", parserErrors[0].textContent);
+
+        console.error("[RobotModel] Problematic XML preview:", cleanedXML.slice(0, 2000));
+
+        throw new Error(`XML parsing failed: ${parserErrors[0].textContent}`);
       }
 
-      console.log('[RobotModel] Parsing URDF XML...');
+      console.log("[RobotModel] Parsing URDF XML...");
       const robot = loader.parse(xmlDoc);
-      console.log('[RobotModel] Robot parsed, children:', robot.children.length);
+      console.log("[RobotModel] Robot parsed, children:", robot.children.length);
       robot.rotation.set(0, 0, 0);
       robot.scale.set(1, 1, 1);
 
       const createLinkGroup = (name: string) => {
         const group = new THREE.Group();
         group.name = name;
-        
+
         const axesHelper = new THREE.AxesHelper(0.3);
         group.add(axesHelper);
 
         const originSphere = new THREE.Mesh(
           new THREE.SphereGeometry(0.02),
-          new THREE.MeshBasicMaterial({ color: 0xff0000 })
+          new THREE.MeshBasicMaterial({ color: 0xff0000 }),
         );
         group.add(originSphere);
 
         linkGroupsRef.current[name] = group;
         sceneRef.current?.add(group);
-        
+
         return group;
       };
 
@@ -235,7 +265,7 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
 
       setIsLoading(false);
     } catch (error) {
-      console.error('[RobotModel] Error loading model:', error);
+      console.error("[RobotModel] Error loading model:", error);
       setIsLoading(false);
     }
   };
@@ -245,23 +275,23 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
     initializedRef.current = true;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#1e1e1e');
+    scene.background = new THREE.Color("#1e1e1e");
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
       75,
       containerRef.current.clientWidth / containerRef.current.clientHeight,
       0.1,
-      1000
+      1000,
     );
     camera.position.set(0.5, 0.5, 0.4);
     camera.up.set(0, 0, 1);
     camera.lookAt(0, 0, 0.05);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ 
+    const renderer = new THREE.WebGLRenderer({
       antialias: true,
-      powerPreference: "high-performance"
+      powerPreference: "high-performance",
     });
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -300,19 +330,18 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
     const animate = () => {
       if (!mountedRef.current) return;
       requestAnimationFrame(animate);
-      
 
       checkRobotVisibility();
-      
+
       if (controlsRef.current) {
         controlsRef.current.update();
       }
-      
+
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
     };
-    
+
     animate();
 
     const handleResize = () => {
@@ -324,17 +353,17 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
       rendererRef.current.setSize(width, height);
     };
 
-    window.addEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
 
     return () => {
       mountedRef.current = false;
-      window.removeEventListener('resize', handleResize);
-      
+      window.removeEventListener("resize", handleResize);
+
       if (renderer) {
         containerRef.current?.removeChild(renderer.domElement);
         renderer.dispose();
       }
-      
+
       if (controlsRef.current) {
         controlsRef.current.dispose();
       }
@@ -342,9 +371,8 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
   }, [delayComplete]);
 
   const checkRobotVisibility = () => {
-    const baseLinkGroup = linkGroupsRef.current['base_link'];
+    const baseLinkGroup = linkGroupsRef.current["base_link"];
     if (!baseLinkGroup || !originalPositionRef.current) return;
-    
 
     const distance = baseLinkGroup.position.length();
     if (distance > 100) {
@@ -359,22 +387,22 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
     const prefix = `tb3_${robotId}/`;
 
     const unsubscribeOdom = subscribe<Odometry>(
-      '/odom',
-      'nav_msgs/Odometry',
+      "/odom",
+      "nav_msgs/Odometry",
       (message) => {
         setRobotState(message);
       },
-      robotId
+      robotId,
     );
 
     // /tf is SHARED — no robotId. Filter incoming transforms by prefix.
     const unsubscribeTF = subscribe<{ transforms: TransformMsg[] }>(
-      '/tf',
-      'tf2_msgs/TFMessage',
+      "/tf",
+      "tf2_msgs/TFMessage",
       (message) => {
         const tfUpdates: Record<string, boolean> = {};
 
-        message.transforms.forEach(transform => {
+        message.transforms.forEach((transform) => {
           if (!transform.child_frame_id.startsWith(prefix)) return;
 
           if (tfUpdates[transform.child_frame_id]) return;
@@ -387,7 +415,7 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
             const newPos = new THREE.Vector3(
               transform.transform.translation.x,
               transform.transform.translation.y,
-              transform.transform.translation.z
+              transform.transform.translation.z,
             );
 
             if (newPos.length() < 100) {
@@ -402,11 +430,11 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
               transform.transform.rotation.x,
               transform.transform.rotation.y,
               transform.transform.rotation.z,
-              transform.transform.rotation.w
+              transform.transform.rotation.w,
             );
           }
         });
-      }
+      },
     );
 
     return () => {
@@ -418,7 +446,7 @@ const RobotModel: React.FC<RobotModelProps> = ({ robotId }) => {
   return (
     <div className="relative w-full h-full bg-[#1a1a1a] overflow-hidden">
       <div ref={containerRef} className="absolute inset-0" />
-      
+
       {!delayComplete && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80">
           <div className="flex flex-col items-center gap-4">

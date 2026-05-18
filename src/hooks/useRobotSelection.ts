@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import rosbridge from '@/lib/rosbridge';
 
 const STORAGE_KEY = 'rosviz.selectedRobotId';
@@ -57,42 +57,114 @@ function persistSelection(id: number | null) {
  * Selection is persisted to sessionStorage so a page refresh doesn't reset it.
  */
 export function useRobotSelection() {
-  const [selectedRobotId, setSelectedRobotId] = useState<number | null>(() =>
-    readPersistedSelection()
-  );
+  // Keep SSR and first client render deterministic (null), then hydrate from storage.
+  const [selectedRobotId, setSelectedRobotId] = useState<number | null>(null);  
+
+  // Prevent concurrent/racy robot switches.
+  const requestIdRef = useRef(0);
+
+  // Expose loading state to the UI.
+  const [isSwitchingRobot, setIsSwitchingRobot] = useState(false);
 
   useEffect(() => {
+    setSelectedRobotId(readPersistedSelection());
+  }, []);
+
+  useEffect(() => {    
     persistSelection(selectedRobotId);
   }, [selectedRobotId]);
 
-  const selectRobot = useCallback(async (id: number): Promise<void> => {
-    setSelectedRobotId(id);
+/**
+   * Atomically switch all muxes to a robot.
+   *
+   * Guarantees:
+   *   - Prevents stale async requests from overwriting newer selections.
+   *   - Updates UI state only if ALL muxes succeeded.
+   *   - Exposes loading state for UI disabling/spinners.
+   *
+   * Returns:
+   *   true  -> all muxes switched successfully
+   *   false -> at least one mux failed OR request became stale
+   */
+  const selectRobot = useCallback(async (id: number): Promise<boolean> => {
+    // Generate monotonically increasing request id.
+    // Newer requests invalidate older ones.
+    const requestId = ++requestIdRef.current;
 
-    // Fire all mux selections in parallel; settle on whatever succeeds.
-    const results = await Promise.allSettled(
-      MUXES.map((mux) =>
-        rosbridge.callService(
-          mux.service,
-          MUX_SELECT_SERVICE_TYPE,
-          { topic: mux.inputForRobot(id) },
-          3000
+    setIsSwitchingRobot(true);
+
+    try {
+      const results = await Promise.allSettled(
+        MUXES.map((mux) =>
+          rosbridge.callService(
+            mux.service,
+            MUX_SELECT_SERVICE_TYPE,
+            { topic: mux.inputForRobot(id) },
+            3000
+          )
         )
-      )
-    );
-
-    const failures = results
-      .map((r, i) => (r.status === 'rejected' ? { mux: MUXES[i].service, reason: r.reason } : null))
-      .filter((x): x is { mux: string; reason: unknown } => x !== null);
-
-    if (failures.length > 0) {
-      console.warn(
-        `[useRobotSelection] ${failures.length}/${MUXES.length} mux switches failed:`,
-        failures
       );
+
+      // Ignore stale/outdated async completions.
+      if (requestId !== requestIdRef.current) {
+        console.warn(
+          `[useRobotSelection] Ignoring stale robot switch request for robot ${id}`
+        );
+        return false;
+      }
+
+      const failures = results
+        .map((result, index) =>
+          result.status === 'rejected'
+            ? {
+                mux: MUXES[index].service,
+                reason: result.reason,
+              }
+            : null
+        )
+        .filter(
+          (failure): failure is { mux: string; reason: unknown } =>
+            failure !== null
+        );
+
+      // Do NOT update frontend selection state if mux state is inconsistent.
+      if (failures.length > 0) {
+        console.warn(
+          `[useRobotSelection] ${failures.length}/${MUXES.length} mux switches failed`,
+          failures
+        );
+
+        return false;
+      }
+
+      // Only commit state once all muxes succeeded.
+      setSelectedRobotId(id);
+
+      console.log(
+        `[useRobotSelection] Successfully switched to robot ${id}`
+      );
+
+      return true;
+    } catch (error) {
+      console.error(
+        `[useRobotSelection] Unexpected robot switch error`,
+        error
+      );
+
+      return false;
+    } finally {
+      // Only clear loading state if this request is still the newest active request.
+      if (requestId === requestIdRef.current) {
+        setIsSwitchingRobot(false);
+      }
     }
   }, []);
 
-  return { selectedRobotId, selectRobot };
+  return {
+    selectedRobotId,
+    isSwitchingRobot,
+    selectRobot,
+  };
 }
 
 export default useRobotSelection;
