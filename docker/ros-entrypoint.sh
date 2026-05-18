@@ -98,27 +98,30 @@ sleep 1
 
 # ── 4 prime. Muxes for individual view topics ──
 echo "[entrypoint] Starting muxes..."
-build_inputs() {
-    local suffix="$1"
-    local out=""
-    for i in $(seq 0 $((NUM_ROBOTS-1))); do
-        out="$out /tb3_$i/$suffix"
+build_robot_topic_list() {
+    local topic_suffix="$1"
+    local topics=()
+    local robot_id
+
+    for ((robot_id=0; robot_id<NUM_ROBOTS; robot_id++)); do
+        topics+=("/tb3_${robot_id}/${topic_suffix}")
     done
-    echo "$out"
+
+    echo "${topics[@]}"
 }
 
 ros2 run topic_tools mux /selected/scan_points \
-    $(build_inputs scan/points) \
+    $(build_robot_topic_list scan/points) \
     --ros-args -r __node:=mux_scan_points &
 PIDS+=($!)
 
 ros2 run topic_tools mux /selected/camera_image \
-    $(build_inputs camera/image_raw/compressed) \
+    $(build_robot_topic_list camera/image_raw/compressed) \
     --ros-args -r __node:=mux_camera_image &
 PIDS+=($!)
 
 ros2 run topic_tools mux /selected/camera_depth \
-    $(build_inputs camera/depth/image_rect_raw/compressed) \
+    $(build_robot_topic_list camera/depth/image_rect_raw/compressed) \
     --ros-args -r __node:=mux_camera_depth &
 PIDS+=($!)
 sleep 1
