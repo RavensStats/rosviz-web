@@ -1,14 +1,35 @@
-import ClientPage from '@/app/client-page';
+'use client';
 
-{/* Note, since my colleagues are still working on getting this running with multiple robots, this is just a temporary solution, but this will eventually show the dashboard for each individual robot */}
-export function generateStaticParams() {
-  return [
-    { id: 'tb3_0' },
-    { id: 'tb3_1' },
-    { id: 'tb3_2' },
-  ];
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import ClientPage from '@/app/client-page';
+import { useRobotSelection } from '@/hooks/useRobotSelection';
+
+function parseRobotId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const match = raw.match(/^tb3_(\d+)$/);
+  if (!match) return null;
+  return Number(match[1]);
 }
 
 export default function RobotPage() {
+  const params = useParams<{ id?: string | string[] }>();
+  const router = useRouter();
+  const { selectedRobotId, selectRobot } = useRobotSelection();
+
+  const routeRobotId = parseRobotId(params?.id);
+
+  useEffect(() => {
+    if (routeRobotId === null) {
+      router.replace('/');
+      return;
+    }
+    if (selectedRobotId !== routeRobotId) {
+      void selectRobot(routeRobotId);
+    }
+  }, [routeRobotId, selectedRobotId, selectRobot, router]);
+
+  if (routeRobotId === null) return null;
+
   return <ClientPage />;
 }
