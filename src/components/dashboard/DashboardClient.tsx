@@ -75,17 +75,17 @@ export default function DashboardClient() {
 
   const { isConnected } = useROS();
   const robots = useDiscoveredRobots();
-  const { selectedRobotId, selectRobot } = useRobotSelection();
+  const { selectedRobotId, selectRobot, isSwitchingRobot } = useRobotSelection();
   const hasRobot = selectedRobotId !== null;
 
   // Keep a valid robot selected: pick the first discovered robot on startup,
   // and recover if the currently-selected robot leaves the network.
   useEffect(() => {
-    if (robots.length === 0) return;
+    if (robots.length === 0 || isSwitchingRobot) return;
     if (selectedRobotId === null || !robots.includes(selectedRobotId)) {
-      selectRobot(robots[0]);
+      void selectRobot(robots[0]);
     }
-  }, [robots, selectedRobotId, selectRobot]);
+  }, [robots, selectedRobotId, selectRobot, isSwitchingRobot]);
 
   useEffect(() => {
     let mainSplit: Split.Instance;

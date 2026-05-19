@@ -15,7 +15,7 @@ function parseRobotId(raw: string | string[] | undefined): number | null {
 export default function RobotPage() {
   const params = useParams<{ id?: string | string[] }>();
   const router = useRouter();
-  const { selectedRobotId, selectRobot } = useRobotSelection();
+  const { selectedRobotId, selectRobot, isSwitchingRobot } = useRobotSelection();
 
   const routeRobotId = parseRobotId(params?.id);
 
@@ -24,10 +24,10 @@ export default function RobotPage() {
       router.replace('/');
       return;
     }
-    if (selectedRobotId !== routeRobotId) {
+    if (!isSwitchingRobot && selectedRobotId !== routeRobotId) {
       void selectRobot(routeRobotId);
     }
-  }, [routeRobotId, selectedRobotId, selectRobot, router]);
+  }, [routeRobotId, selectedRobotId, selectRobot, router, isSwitchingRobot]);
 
   if (routeRobotId === null) return null;
 

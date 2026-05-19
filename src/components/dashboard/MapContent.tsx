@@ -1,23 +1,23 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState, useRef } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
-import rosbridge from '@/lib/rosbridge';
-import { useROS } from '@/hooks/useROS';
-import { useDiscoveredRobots } from '@/hooks/useDiscoveredRobots';
+import React, { useEffect, useState, useRef } from "react";
+import L, { LatLngTuple } from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import rosbridge from "@/lib/rosbridge";
+import { useROS } from "@/hooks/useROS";
+import { useDiscoveredRobots } from "@/hooks/useDiscoveredRobots";
 
 // TODO: Maybe we could make this dynamic as well, even though I don't really see any way of doing this at the moment
 // But basically the problem is odom starts at 0,0 and then published from there, so we wouldnt know where the robots start
 const SPAWN_POSITIONS: Record<number, { x: number; y: number }> = {
-  0: { x:  0, y:  0 },
+  0: { x: 0, y: 0 },
   1: { x: -1, y: -1 },
-  2: { x:  1, y: -1 },
+  2: { x: 1, y: -1 },
 };
 
 // Moved this out of the interfcae below
-const ANCHOR_LAT = 40.7580;
+const ANCHOR_LAT = 40.758;
 const ANCHOR_LNG = -73.9855;
 const METERS_PER_DEG_LAT = 111320;
 const METERS_PER_DEG_LNG = 73640;
@@ -45,8 +45,8 @@ interface RobotPosition {
 }
 
 function worldToLatLng(wx: number, wy: number): LatLngTuple {
-  const lat = ANCHOR_LAT + (wy / METERS_PER_DEG_LAT);
-  const lng = ANCHOR_LNG + (wx / METERS_PER_DEG_LNG);
+  const lat = ANCHOR_LAT + wy / METERS_PER_DEG_LAT;
+  const lng = ANCHOR_LNG + wx / METERS_PER_DEG_LNG;
   return [lat, lng];
 }
 
@@ -56,7 +56,7 @@ function yawFromQuaternion(q: { x: number; y: number; z: number; w: number }): n
 
 function makeRobotIcon(color: string, yawDeg: number) {
   return L.divIcon({
-    className: '',
+    className: "",
     html: `<div style="
       width: 16px;
       height: 16px;
@@ -85,16 +85,16 @@ function makeRobotIcon(color: string, yawDeg: number) {
 // Component to handle map size updates
 function MapResizer() {
   const map = useMap();
-  
+
   useEffect(() => {
     const handleResize = () => {
       map.invalidateSize();
     };
 
-    window.addEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
     handleResize(); // Initial size check
 
-    return () => window.removeEventListener('resize', handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, [map]);
 
   return null;
@@ -117,23 +117,23 @@ const MapContent = () => {
       const spawn = SPAWN_POSITIONS[id] ?? { x: 0, y: 0 };
       const unsub = rosbridge.subscribe<OdometryMessage>(
         `/tb3_${id}/odom`,
-        'nav_msgs/Odometry',
+        "nav_msgs/Odometry",
         (msg) => {
           const pos = msg.pose.pose.position;
           const ori = msg.pose.pose.orientation;
           const worldX = spawn.x + pos.x;
           const worldY = spawn.y + pos.y;
           const [lat, lng] = worldToLatLng(worldX, worldY);
-          setPositions(prev => ({
+          setPositions((prev) => ({
             ...prev,
-            [id]: { lat, lng, yaw: yawFromQuaternion(ori) }
+            [id]: { lat, lng, yaw: yawFromQuaternion(ori) },
           }));
-        }
+        },
       );
       unsubs.push(unsub);
     }
 
-    return () => unsubs.forEach(u => u());
+    return () => unsubs.forEach((u) => u());
   }, [isConnected, robotIds]);
 
   type LatLngTuple = [number, number];
@@ -143,7 +143,7 @@ const MapContent = () => {
     <MapContainer
       center={center}
       zoom={20}
-      style={{ height: '100%', width: '100%' }}
+      style={{ height: "100%", width: "100%" }}
       zoomControl={false}
     >
       <MapResizer />
@@ -153,16 +153,17 @@ const MapContent = () => {
       />
       {Object.entries(positions).map(([idStr, pos]) => {
         const id = Number(idStr);
-        const yawDeg = (pos.yaw * 180 / Math.PI);
+        const yawDeg = (pos.yaw * 180) / Math.PI;
         return (
           <Marker
             key={id}
             position={[pos.lat, pos.lng]}
-            icon={makeRobotIcon(getRobotColor(id) ?? '#ffffff', yawDeg)}
+            icon={makeRobotIcon(getRobotColor(id) ?? "#ffffff", yawDeg)}
           >
             <Popup>
-              <div style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                <strong style={{ color: getRobotColor(id) }}>TurtleBot {id}</strong><br />
+              <div style={{ fontFamily: "monospace", fontSize: 12 }}>
+                <strong style={{ color: getRobotColor(id) }}>TurtleBot {id}</strong>
+                <br />
                 X: {(SPAWN_POSITIONS[id]?.x ?? 0).toFixed(3)}m<br />
                 Y: {(SPAWN_POSITIONS[id]?.y ?? 0).toFixed(3)}m
               </div>

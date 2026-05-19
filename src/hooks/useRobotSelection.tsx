@@ -1,17 +1,13 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import rosbridge from '@/lib/rosbridge';
 
 const STORAGE_KEY = 'rosviz.selectedRobotId';
-
 const MUX_SELECT_SERVICE_TYPE = 'topic_tools_interfaces/srv/MuxSelect';
-// const MUX_SELECT_SERVICE_TYPE = 'topic_tools/MuxSelect';  // older fallback
 
 interface MuxConfig {
-  /** Mux service path, e.g. '/mux_scan_points/select' */
   service: string;
-  /** Function returning the input topic for a given robot id */
   inputForRobot: (id: number) => string;
 }
 
@@ -47,50 +43,45 @@ function persistSelection(id: number | null) {
   }
 }
 
-/**
- * Single source of truth for which robot the individual view is focused on.
- *
- * `selectRobot(id)` does two things atomically:
- *   1. Updates local state (so UI follows).
- *   2. Calls every mux's /select service to route /selected/* to that robot.
- *
- * Selection is persisted to sessionStorage so a page refresh doesn't reset it.
- */
-export function useRobotSelection() {
-  // Keep SSR and first client render deterministic (null), then hydrate from storage.
-  const [selectedRobotId, setSelectedRobotId] = useState<number | null>(null);  
+interface RobotSelectionContextValue {
+  selectedRobotId: number | null;
+  isSwitchingRobot: boolean;
+  selectRobot: (id: number) => Promise<boolean>;
+}
 
-  // Prevent concurrent/racy robot switches.
-  const requestIdRef = useRef(0);
+const RobotSelectionContext = createContext<RobotSelectionContextValue | null>(null);
 
-  // Expose loading state to the UI.
+export function RobotSelectionProvider({ children }: { children: React.ReactNode }) {
+  const [selectedRobotId, setSelectedRobotId] = useState<number | null>(null);
   const [isSwitchingRobot, setIsSwitchingRobot] = useState(false);
+
+  const requestIdRef = useRef(0);
+  const activeTargetRef = useRef<number | null>(null);
+  const didInitRef = useRef(false);
+  const skipNextPersistRef = useRef(true);
 
   useEffect(() => {
     setSelectedRobotId(readPersistedSelection());
+    didInitRef.current = true;
   }, []);
 
-  useEffect(() => {    
+  useEffect(() => {
+    if (!didInitRef.current) return;
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
     persistSelection(selectedRobotId);
   }, [selectedRobotId]);
 
-/**
-   * Atomically switch all muxes to a robot.
-   *
-   * Guarantees:
-   *   - Prevents stale async requests from overwriting newer selections.
-   *   - Updates UI state only if ALL muxes succeeded.
-   *   - Exposes loading state for UI disabling/spinners.
-   *
-   * Returns:
-   *   true  -> all muxes switched successfully
-   *   false -> at least one mux failed OR request became stale
-   */
   const selectRobot = useCallback(async (id: number): Promise<boolean> => {
-    // Generate monotonically increasing request id.
-    // Newer requests invalidate older ones.
-    const requestId = ++requestIdRef.current;
+    // Idempotent short-circuit.
+    if (selectedRobotId === id) return true;
+    // Prevent duplicate in-flight request to the same target.
+    if (isSwitchingRobot && activeTargetRef.current === id) return false;
 
+    const requestId = ++requestIdRef.current;
+    activeTargetRef.current = id;
     setIsSwitchingRobot(true);
 
     try {
@@ -100,16 +91,13 @@ export function useRobotSelection() {
             mux.service,
             MUX_SELECT_SERVICE_TYPE,
             { topic: mux.inputForRobot(id) },
-            3000
-          )
-        )
+            3000,
+          ),
+        ),
       );
 
-      // Ignore stale/outdated async completions.
       if (requestId !== requestIdRef.current) {
-        console.warn(
-          `[useRobotSelection] Ignoring stale robot switch request for robot ${id}`
-        );
+        console.warn(`[useRobotSelection] Ignoring stale robot switch request for robot ${id}`);
         return false;
       }
 
@@ -120,51 +108,49 @@ export function useRobotSelection() {
                 mux: MUXES[index].service,
                 reason: result.reason,
               }
-            : null
+            : null,
         )
-        .filter(
-          (failure): failure is { mux: string; reason: unknown } =>
-            failure !== null
-        );
+        .filter((failure): failure is { mux: string; reason: unknown } => failure !== null);
 
-      // Do NOT update frontend selection state if mux state is inconsistent.
       if (failures.length > 0) {
         console.warn(
           `[useRobotSelection] ${failures.length}/${MUXES.length} mux switches failed`,
-          failures
+          failures,
         );
-
         return false;
       }
 
-      // Only commit state once all muxes succeeded.
       setSelectedRobotId(id);
-
-      console.log(
-        `[useRobotSelection] Successfully switched to robot ${id}`
-      );
-
       return true;
     } catch (error) {
-      console.error(
-        `[useRobotSelection] Unexpected robot switch error`,
-        error
-      );
-
+      console.error('[useRobotSelection] Unexpected robot switch error', error);
       return false;
     } finally {
-      // Only clear loading state if this request is still the newest active request.
       if (requestId === requestIdRef.current) {
+        activeTargetRef.current = null;
         setIsSwitchingRobot(false);
       }
     }
-  }, []);
+  }, [selectedRobotId, isSwitchingRobot]);
 
-  return {
-    selectedRobotId,
-    isSwitchingRobot,
-    selectRobot,
-  };
+  const value = useMemo<RobotSelectionContextValue>(
+    () => ({
+      selectedRobotId,
+      isSwitchingRobot,
+      selectRobot,
+    }),
+    [selectedRobotId, isSwitchingRobot, selectRobot],
+  );
+
+  return <RobotSelectionContext.Provider value={value}>{children}</RobotSelectionContext.Provider>;
+}
+
+export function useRobotSelection() {
+  const ctx = useContext(RobotSelectionContext);
+  if (!ctx) {
+    throw new Error('useRobotSelection must be used within RobotSelectionProvider');
+  }
+  return ctx;
 }
 
 export default useRobotSelection;
