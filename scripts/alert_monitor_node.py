@@ -6,6 +6,10 @@ Detects:
   VELOCITY_EXCEEDED — Odometry linear/angular velocity above threshold
   CONNECTION_LOSS  — No message received on any topic for a robot within timeout
   LOW_BATTERY      — BatteryState percentage or voltage below threshold
+  IMPACT_DETECTED  — IMU horizontal acceleration spike
+  TILT_WARNING     — IMU roll/pitch angle exceeds safe limit
+  MOTOR_STALL      — Wheel velocity near zero while move command is active
+  GEOFENCE_BREACH  — Robot position outside configured bounding box
 
 Publishes:
   /robot_alerts         (std_msgs/String) — one JSON alert per message
@@ -23,18 +27,22 @@ from collections import deque
 
 import rclpy
 from rclpy.node import Node
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from prometheus_client import Counter, Gauge, start_http_server
-from sensor_msgs.msg import BatteryState, LaserScan
+from sensor_msgs.msg import BatteryState, Imu, JointState, LaserScan
 from std_msgs.msg import String
 
 # ── Prometheus metrics (module-level, shared across all node instances) ──
 _alert_counter = Counter(
     'robot_alert_total', 'Total alerts fired', ['robot_id', 'alert_type']
 )
-_scan_gauge = Gauge('robot_min_scan_range', 'Minimum laser scan range (m)', ['robot_id'])
-_vel_lin_gauge = Gauge('robot_velocity_linear', 'Linear velocity X (m/s)', ['robot_id'])
-_bat_pct_gauge = Gauge('robot_battery_percentage', 'Battery percentage (0-100)', ['robot_id'])
+_scan_gauge      = Gauge('robot_min_scan_range',    'Minimum laser scan range (m)',       ['robot_id'])
+_vel_lin_gauge   = Gauge('robot_velocity_linear',   'Linear velocity X (m/s)',            ['robot_id'])
+_bat_pct_gauge   = Gauge('robot_battery_percentage','Battery percentage (0-100)',          ['robot_id'])
+_imu_accel_gauge = Gauge('robot_imu_accel_horiz',   'Horizontal acceleration magnitude (m/s²)', ['robot_id'])
+_tilt_gauge      = Gauge('robot_tilt_angle_deg',    'Max roll/pitch angle (degrees)',      ['robot_id'])
+_geofence_gauge  = Gauge('robot_geofence_status',   'Geofence violation (1=breach, 0=ok)', ['robot_id'])
 
 
 class AlertMonitorNode(Node):
@@ -49,11 +57,26 @@ class AlertMonitorNode(Node):
         self.conn_timeout_s = float(os.environ.get('ALERT_CONN_TIMEOUT_S', '5.0'))
         self.bat_pct_min = float(os.environ.get('ALERT_BATTERY_PCT_MIN', '20.0'))
         self.bat_volt_min = float(os.environ.get('ALERT_BATTERY_VOLT_MIN', '10.5'))
+        self.impact_accel_ms2  = float(os.environ.get('ALERT_IMPACT_ACCEL_MS2', '8.0'))
+        self.tilt_deg_max      = float(os.environ.get('ALERT_TILT_DEG', '20.0'))
+        self.stall_duration_s  = float(os.environ.get('ALERT_STALL_DURATION_S', '2.0'))
+        self.geofence_x_min    = float(os.environ.get('ALERT_GEOFENCE_X_MIN', '-5.0'))
+        self.geofence_x_max    = float(os.environ.get('ALERT_GEOFENCE_X_MAX',  '5.0'))
+        self.geofence_y_min    = float(os.environ.get('ALERT_GEOFENCE_Y_MIN', '-5.0'))
+        self.geofence_y_max    = float(os.environ.get('ALERT_GEOFENCE_Y_MAX',  '5.0'))
 
         # State
         self.alert_buffer: deque = deque(maxlen=50)
         self.last_alert_time: dict = {}   # (robot_idx, alert_type) -> timestamp
         self.last_msg_time: dict = {}     # robot_idx -> timestamp
+        self.last_velocity: dict = {}     # robot_idx -> abs linear velocity (m/s)
+        self.real_battery: set = set()    # robot indices with real BatteryState msgs
+        self.last_cmd_vel: dict = {}      # robot_idx -> (linear_x, angular_z, timestamp)
+        self.stall_start_time: dict = {}  # robot_idx -> time stall began, or None
+        # Stagger starting charge so robots show distinct lines on the chart
+        self.simulated_battery: dict = {
+            i: 95.0 - (i * 5.0) for i in range(num_robots)
+        }
 
         # Publishers
         self.alert_pub = self.create_publisher(String, '/robot_alerts', 10)
@@ -75,9 +98,22 @@ class AlertMonitorNode(Node):
                 BatteryState, f'/{ns}/battery_state',
                 lambda m, n=ns, idx=i: self._on_battery(m, n, idx), 10
             )
+            self.create_subscription(
+                Imu, f'/{ns}/imu',
+                lambda m, n=ns, idx=i: self._on_imu(m, n, idx), 10
+            )
+            self.create_subscription(
+                Twist, f'/{ns}/cmd_vel',
+                lambda m, n=ns, idx=i: self._on_cmd_vel(m, n, idx), 10
+            )
+            self.create_subscription(
+                JointState, f'/{ns}/joint_states',
+                lambda m, n=ns, idx=i: self._on_joint_states(m, n, idx), 10
+            )
 
         # Timers
         self.create_timer(1.0, self._check_connection_timeouts)
+        self.create_timer(1.0, self._update_simulated_battery)
         self.create_timer(5.0, self._publish_history)
 
         self.get_logger().info(
@@ -107,6 +143,7 @@ class AlertMonitorNode(Node):
         self.last_msg_time[idx] = time.time()
         lin_x = msg.twist.twist.linear.x
         ang_z = msg.twist.twist.angular.z
+        self.last_velocity[idx] = abs(lin_x)
         _vel_lin_gauge.labels(robot_id=str(idx)).set(abs(lin_x))
         if abs(lin_x) > self.vel_linear_max:
             self._fire_alert(
@@ -120,12 +157,29 @@ class AlertMonitorNode(Node):
                 f'{ns}: angular vel {ang_z:.2f} rad/s',
                 abs(ang_z), self.vel_angular_max
             )
+        # GEOFENCE_BREACH
+        x = msg.pose.pose.position.x
+        y = msg.pose.pose.position.y
+        in_bounds = (
+            self.geofence_x_min <= x <= self.geofence_x_max and
+            self.geofence_y_min <= y <= self.geofence_y_max
+        )
+        _geofence_gauge.labels(robot_id=str(idx)).set(0 if in_bounds else 1)
+        if not in_bounds:
+            self._fire_alert(
+                idx, 'GEOFENCE_BREACH', 'critical',
+                f'{ns}: out of bounds ({x:.1f}, {y:.1f})',
+                math.sqrt(x * x + y * y), 0.0
+            )
 
     def _on_battery(self, msg: BatteryState, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
         # sensor_msgs/BatteryState.percentage is 0.0–1.0
         pct = msg.percentage * 100.0
         volt = msg.voltage
+        # Real data arrived — sync simulation and stop draining for this robot
+        self.real_battery.add(idx)
+        self.simulated_battery[idx] = pct
         _bat_pct_gauge.labels(robot_id=str(idx)).set(pct)
         if pct < self.bat_pct_min:
             self._fire_alert(
@@ -140,7 +194,96 @@ class AlertMonitorNode(Node):
                 volt, self.bat_volt_min
             )
 
+    def _on_imu(self, msg: Imu, ns: str, idx: int) -> None:
+        self.last_msg_time[idx] = time.time()
+        ax = msg.linear_acceleration.x
+        ay = msg.linear_acceleration.y
+        horiz = math.sqrt(ax * ax + ay * ay)
+        _imu_accel_gauge.labels(robot_id=str(idx)).set(horiz)
+        if horiz > self.impact_accel_ms2:
+            self._fire_alert(
+                idx, 'IMPACT_DETECTED', 'warning',
+                f'{ns}: impact {horiz:.1f} m/s²',
+                horiz, self.impact_accel_ms2
+            )
+        # TILT_WARNING: quaternion → roll/pitch
+        qx = msg.orientation.x
+        qy = msg.orientation.y
+        qz = msg.orientation.z
+        qw = msg.orientation.w
+        sinr = 2.0 * (qw * qx + qy * qz)
+        cosr = 1.0 - 2.0 * (qx * qx + qy * qy)
+        roll = math.atan2(sinr, cosr)
+        sinp = 2.0 * (qw * qy - qz * qx)
+        pitch = math.copysign(math.pi / 2, sinp) if abs(sinp) >= 1 else math.asin(sinp)
+        tilt_deg = math.degrees(max(abs(roll), abs(pitch)))
+        _tilt_gauge.labels(robot_id=str(idx)).set(tilt_deg)
+        if tilt_deg > self.tilt_deg_max:
+            self._fire_alert(
+                idx, 'TILT_WARNING', 'critical',
+                f'{ns}: tilt {tilt_deg:.1f}°',
+                tilt_deg, self.tilt_deg_max
+            )
+
+    def _on_cmd_vel(self, msg: Twist, ns: str, idx: int) -> None:
+        self.last_cmd_vel[idx] = (msg.linear.x, msg.angular.z, time.time())
+
+    _WHEEL_JOINTS = {'wheel_left_joint', 'wheel_right_joint'}
+
+    def _on_joint_states(self, msg: JointState, ns: str, idx: int) -> None:
+        self.last_msg_time[idx] = time.time()
+        cmd = self.last_cmd_vel.get(idx)
+        if cmd is None:
+            return
+        lin_x, ang_z, cmd_time = cmd
+        if abs(lin_x) < 0.05 and abs(ang_z) < 0.05:
+            self.stall_start_time[idx] = None
+            return
+        if time.time() - cmd_time > 1.0:  # stale command
+            return
+        wheel_vels = [
+            abs(msg.velocity[i])
+            for i, name in enumerate(msg.name)
+            if name in self._WHEEL_JOINTS and i < len(msg.velocity)
+        ]
+        if not wheel_vels:
+            return
+        max_vel = max(wheel_vels)
+        if max_vel < 0.1:
+            if self.stall_start_time.get(idx) is None:
+                self.stall_start_time[idx] = time.time()
+            elif time.time() - self.stall_start_time[idx] >= self.stall_duration_s:
+                self._fire_alert(
+                    idx, 'MOTOR_STALL', 'warning',
+                    f'{ns}: wheels stalled (vel {max_vel:.3f} rad/s)',
+                    max_vel, 0.1
+                )
+        else:
+            self.stall_start_time[idx] = None
+
     # ── Timer callbacks ─────────────────────────────────────────────────────
+
+    def _update_simulated_battery(self) -> None:
+        """Drain simulated battery for robots that don't publish BatteryState.
+
+        Drain rate: 0.008 %/s at rest + 0.04 * velocity %/s when moving.
+        At rest this takes ~3.5 hours to drain from 95 % to 0 %.
+        At max velocity (0.5 m/s) total drain is 0.028 %/s (~60 min from full).
+        """
+        for idx in range(self.num_robots):
+            if idx in self.real_battery:
+                continue
+            vel = self.last_velocity.get(idx, 0.0)
+            drain = 0.008 + vel * 0.04
+            self.simulated_battery[idx] = max(0.0, self.simulated_battery[idx] - drain)
+            pct = self.simulated_battery[idx]
+            _bat_pct_gauge.labels(robot_id=str(idx)).set(pct)
+            if pct < self.bat_pct_min:
+                self._fire_alert(
+                    idx, 'LOW_BATTERY', 'warning',
+                    f'tb3_{idx}: battery at {pct:.0f}%',
+                    pct, self.bat_pct_min
+                )
 
     def _check_connection_timeouts(self) -> None:
         now = time.time()

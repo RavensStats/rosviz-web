@@ -162,7 +162,15 @@ export interface TFMessage {
 }
 
 export type AlertSeverity = 'warning' | 'critical';
-export type AlertType = 'COLLISION' | 'VELOCITY_EXCEEDED' | 'CONNECTION_LOSS' | 'LOW_BATTERY';
+export type AlertType =
+  | 'COLLISION'
+  | 'VELOCITY_EXCEEDED'
+  | 'CONNECTION_LOSS'
+  | 'LOW_BATTERY'
+  | 'IMPACT_DETECTED'
+  | 'TILT_WARNING'
+  | 'MOTOR_STALL'
+  | 'GEOFENCE_BREACH';
 
 export interface AlertMessage {
   id: string;

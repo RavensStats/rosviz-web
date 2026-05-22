@@ -21,7 +21,7 @@ function severityClasses(severity: AlertSeverity): string {
 
 function AlertIcon({ type }: { type: AlertType }) {
   const cls = 'w-3 h-3 flex-shrink-0';
-  return type === 'COLLISION' || type === 'CONNECTION_LOSS'
+  return type === 'COLLISION' || type === 'CONNECTION_LOSS' || type === 'TILT_WARNING' || type === 'GEOFENCE_BREACH'
     ? <AlertCircle className={cls} />
     : <AlertTriangle className={cls} />;
 }

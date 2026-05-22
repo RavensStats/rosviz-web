@@ -6,6 +6,10 @@ import type {
   ROSMessageBase,
 } from "@/types/ros";
 
+function isBase64(s: string): boolean {
+  return s.length > 0 && s.length % 4 === 0 && /^[A-Za-z0-9+/]+=*$/.test(s);
+}
+
 class ROSBridge extends EventEmitter {
   private ws: WebSocket | null = null;
   private url: string = "";
@@ -15,6 +19,7 @@ class ROSBridge extends EventEmitter {
     { messageType: string; callbacks: ROSCallback<unknown>[] }
   > = new Map();
   private connectPromise: Promise<void> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   async connect(url: string = "ws://localhost:9090"): Promise<void> {
     if (this.connected) return;
@@ -40,6 +45,7 @@ class ROSBridge extends EventEmitter {
           this.connected = false;
           this.emit("disconnected");
           this.connectPromise = null;
+          this.scheduleReconnect();
         };
 
         this.ws.onerror = (error) => {
@@ -79,9 +85,8 @@ class ROSBridge extends EventEmitter {
         const subscription = this.subscriptions.get(data.topic);
         if (subscription) {
           const msg = data.msg as ROSMessageData;
-          if (msg.data && typeof msg.data === "string") {
-            const binaryData = this.base64ToUint8Array(msg.data);
-            msg.data = binaryData;
+          if (msg.data && typeof msg.data === "string" && isBase64(msg.data)) {
+            msg.data = this.base64ToUint8Array(msg.data);
           }
           subscription.callbacks.forEach((callback) => callback(msg));
         }
@@ -92,17 +97,12 @@ class ROSBridge extends EventEmitter {
   }
 
   private base64ToUint8Array(base64: string): Uint8Array {
-    try {
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      return bytes;
-    } catch (error) {
-      console.error("Error converting base64 to Uint8Array:", error);
-      throw error;
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
     }
+    return bytes;
   }
 
   private resubscribeAll() {
@@ -253,11 +253,28 @@ class ROSBridge extends EventEmitter {
     }
   }
 
+  private scheduleReconnect(delayMs: number = 3000): void {
+    if (this.reconnectTimer || !this.url) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.connected) {
+        console.log("Reconnecting to ROSBridge...");
+        this.connect(this.url).catch(() => {
+          // onclose will schedule the next attempt
+        });
+      }
+    }, delayMs);
+  }
+
   isConnected(): boolean {
     return this.connected && this.ws?.readyState === WebSocket.OPEN;
   }
 
   disconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
     }

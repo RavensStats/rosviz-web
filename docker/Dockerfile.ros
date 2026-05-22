@@ -63,7 +63,11 @@ COPY scripts/    ./scripts/
 
 # ── Copy the entrypoint ──
 COPY docker/ros-entrypoint.sh /ros-entrypoint.sh
-RUN chmod +x /ros-entrypoint.sh
+
+# ── Strip Windows CRLF line endings from all shell scripts ──
+RUN find /ros_ws /ros-entrypoint.sh -name "*.sh" -exec sed -i 's/\r$//' {} + \
+    && chmod +x /ros-entrypoint.sh \
+    && find /ros_ws -name "*.sh" -exec chmod +x {} +
 
 # ── Environment ──
 ENV TURTLEBOT3_MODEL=waffle

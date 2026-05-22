@@ -9,6 +9,11 @@
 set -e
 source /opt/ros/humble/setup.bash
 
+# ── Strip Windows CRLF from volume-mounted scripts ──
+# simulation/ and scripts/ are bind-mounted from a Windows host, so the
+# Dockerfile's sed pass is overridden at runtime. Strip here instead.
+find /ros_ws/simulation /ros_ws/scripts -name "*.sh" -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+
 # ── Multi-robot config ──
 export NUM_ROBOTS=${NUM_ROBOTS:-3}
 export IGN_GAZEBO_RESOURCE_PATH="/ros_ws/simulation/models:${IGN_GAZEBO_RESOURCE_PATH:-}"
