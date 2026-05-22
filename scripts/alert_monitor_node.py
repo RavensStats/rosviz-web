@@ -102,6 +102,8 @@ class AlertMonitorNode(Node):
         self.auto_stop_enabled: bool = False
         self.alert_buffer: deque = deque(maxlen=50)
         self.active_conditions: set = set()  # string keys: "{robot_idx}:{condition_id}"
+        self.clear_times: dict[str, float] = {}
+        self.refire_cooldown_s = float(os.environ.get('ALERT_REFIRE_COOLDOWN_S', '10.0'))
         self._history_file = pathlib.Path(
             os.environ.get('ALERT_HISTORY_FILE', '/data/alert_history.json')
         )
@@ -453,7 +455,9 @@ class AlertMonitorNode(Node):
 
     def _clear_alert(self, robot_idx: int, *cond_ids: str) -> None:
         for cid in cond_ids:
-            self.active_conditions.discard(f"{robot_idx}:{cid}")
+            key = f"{robot_idx}:{cid}"
+            self.active_conditions.discard(key)
+            self.clear_times[key] = time.time()
 
     def _fire_alert(
         self,
@@ -468,6 +472,9 @@ class AlertMonitorNode(Node):
     ) -> None:
         key = f"{robot_idx}:{cond or alert_type}"
         if key in self.active_conditions:
+            return
+        elapsed = time.time() - self.clear_times.get(key, 0)
+        if elapsed < self.refire_cooldown_s:
             return
         self.active_conditions.add(key)
 
