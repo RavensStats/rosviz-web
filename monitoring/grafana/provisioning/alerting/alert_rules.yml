@@ -40,7 +40,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_min_scan_range < 0.2
+              expr: robot_min_scan_range < 0.27
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A

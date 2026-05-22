@@ -48,8 +48,8 @@ export default function AlertHistory() {
         try {
           const alert: AlertMessage = JSON.parse(msg.data);
           setAlerts(prev => [alert, ...prev].slice(0, MAX_ALERTS));
-        } catch {
-          // ignore malformed messages
+        } catch (e) {
+          console.warn("[AlertHistory] parse failed:", e, "raw:", msg.data);
         }
       }
     );

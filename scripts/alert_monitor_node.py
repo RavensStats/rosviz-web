@@ -33,6 +33,31 @@ from prometheus_client import Counter, Gauge, start_http_server
 from sensor_msgs.msg import BatteryState, Imu, JointState, LaserScan
 from std_msgs.msg import String
 
+# ── TurtleBot3 footprint radii (centre to furthest corner, metres) ──────
+# Burger:    138 mm × 178 mm  → half-diagonal ≈ 0.113 m
+# Waffle/Pi: 306 mm × 306 mm  → half-diagonal ≈ 0.216 m
+_TB3_RADII: dict[str, float] = {
+    'burger':   math.sqrt(0.069**2 + 0.089**2),
+    'waffle':   math.sqrt(0.153**2 + 0.153**2),
+    'waffle_pi': math.sqrt(0.153**2 + 0.153**2),
+}
+
+def _collision_threshold() -> float:
+    """Return scan threshold = robot corner radius + safety margin.
+
+    Reads TURTLEBOT3_MODEL from the environment. Falls back to
+    ALERT_SCAN_MIN_M if set explicitly, or 0.25 m if the model is unknown.
+    """
+    if 'ALERT_SCAN_MIN_M' in os.environ:
+        return float(os.environ['ALERT_SCAN_MIN_M'])
+    model = os.environ.get('TURTLEBOT3_MODEL', '').lower()
+    radius = _TB3_RADII.get(model)
+    if radius is None:
+        return 0.25  # conservative fallback for unknown models
+    margin = float(os.environ.get('ALERT_SCAN_MARGIN_M', '0.05'))
+    return radius + margin
+
+
 # ── Prometheus metrics (module-level, shared across all node instances) ──
 _alert_counter = Counter(
     'robot_alert_total', 'Total alerts fired', ['robot_id', 'alert_type']
@@ -51,7 +76,7 @@ class AlertMonitorNode(Node):
         self.num_robots = num_robots
 
         # Thresholds (env-overridable)
-        self.scan_min_m = float(os.environ.get('ALERT_SCAN_MIN_M', '0.20'))
+        self.scan_min_m = _collision_threshold()
         self.vel_linear_max = float(os.environ.get('ALERT_VEL_LINEAR_MAX', '0.50'))
         self.vel_angular_max = float(os.environ.get('ALERT_VEL_ANGULAR_MAX', '2.00'))
         self.conn_timeout_s = float(os.environ.get('ALERT_CONN_TIMEOUT_S', '5.0'))
@@ -124,19 +149,47 @@ class AlertMonitorNode(Node):
 
     def _on_scan(self, msg: LaserScan, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
-        valid = [
-            r for r in msg.ranges
-            if msg.range_min <= r <= msg.range_max
-            and not math.isnan(r)
-            and not math.isinf(r)
-        ]
-        min_range = min(valid) if valid else float('inf')
-        _scan_gauge.labels(robot_id=str(idx)).set(min_range)
-        if min_range < self.scan_min_m:
+
+        forward_min = float('inf')
+        rear_min = float('inf')
+        side_min = float('inf')
+        for i, r in enumerate(msg.ranges):
+            if not (msg.range_min <= r <= msg.range_max) or math.isnan(r) or math.isinf(r):
+                continue
+            angle = msg.angle_min + i * msg.angle_increment
+            # Normalise to (-π, π]
+            angle = (angle + math.pi) % (2 * math.pi) - math.pi
+            if abs(angle) <= math.pi / 4:           # forward ±45°
+                forward_min = min(forward_min, r)
+            elif abs(angle) >= 3 * math.pi / 4:     # rear ±45°
+                rear_min = min(rear_min, r)
+            else:                                    # sides
+                side_min = min(side_min, r)
+
+        overall_min = min(forward_min, rear_min, side_min)
+        _scan_gauge.labels(robot_id=str(idx)).set(overall_min)
+
+        cmd = self.last_cmd_vel.get(idx)
+        reversing = cmd is not None and cmd[0] < -0.05
+
+        if forward_min < self.scan_min_m:
             self._fire_alert(
                 idx, 'COLLISION', 'critical',
-                f'{ns}: obstacle at {min_range:.2f} m',
-                min_range, self.scan_min_m
+                f'{ns}: obstacle ahead at {forward_min:.2f} m',
+                forward_min, self.scan_min_m
+            )
+        if rear_min < self.scan_min_m:
+            severity = 'critical' if reversing else 'warning'
+            self._fire_alert(
+                idx, 'COLLISION', severity,
+                f'{ns}: obstacle behind at {rear_min:.2f} m',
+                rear_min, self.scan_min_m
+            )
+        if side_min < self.scan_min_m:
+            self._fire_alert(
+                idx, 'COLLISION', 'warning',
+                f'{ns}: obstacle nearby at {side_min:.2f} m',
+                side_min, self.scan_min_m
             )
 
     def _on_odom(self, msg: Odometry, ns: str, idx: int) -> None:
