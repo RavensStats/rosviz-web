@@ -31,7 +31,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from prometheus_client import Counter, Gauge, start_http_server
 from sensor_msgs.msg import BatteryState, Imu, JointState, LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 # ── TurtleBot3 footprint radii (centre to furthest corner, metres) ──────
 # Burger:    138 mm × 178 mm  → half-diagonal ≈ 0.113 m
@@ -68,6 +68,7 @@ _bat_pct_gauge   = Gauge('robot_battery_percentage','Battery percentage (0-100)'
 _imu_accel_gauge = Gauge('robot_imu_accel_horiz',   'Horizontal acceleration magnitude (m/s²)', ['robot_id'])
 _tilt_gauge      = Gauge('robot_tilt_angle_deg',    'Max roll/pitch angle (degrees)',      ['robot_id'])
 _geofence_gauge  = Gauge('robot_geofence_status',   'Geofence violation (1=breach, 0=ok)', ['robot_id'])
+_auto_stop_gauge = Gauge('robot_safety_auto_stop_enabled', 'Auto-stop feature enabled (1=on)')
 
 
 class AlertMonitorNode(Node):
@@ -92,6 +93,7 @@ class AlertMonitorNode(Node):
         self.geofence_y_max    = float(os.environ.get('ALERT_GEOFENCE_Y_MAX',  '5.0'))
 
         # State
+        self.auto_stop_enabled: bool = False
         self.alert_buffer: deque = deque(maxlen=50)
         self.active_conditions: set = set()  # string keys: "{robot_idx}:{condition_id}"
         self.last_msg_time: dict = {}     # robot_idx -> timestamp
@@ -107,6 +109,12 @@ class AlertMonitorNode(Node):
         # Publishers
         self.alert_pub = self.create_publisher(String, '/robot_alerts', 10)
         self.history_pub = self.create_publisher(String, '/robot_alerts_history', 1)
+        self.auto_stop_status_pub = self.create_publisher(Bool, '/safety_auto_stop_status', 1)
+        self.cmd_vel_pubs: dict = {
+            i: self.create_publisher(Twist, f'/tb3_{i}/cmd_vel', 10)
+            for i in range(num_robots)
+        }
+        self._publish_auto_stop_status()
 
         # Subscribe to per-robot topics
         for i in range(num_robots):
@@ -136,6 +144,9 @@ class AlertMonitorNode(Node):
                 JointState, f'/{ns}/joint_states',
                 lambda m, n=ns, idx=i: self._on_joint_states(m, n, idx), 10
             )
+
+        # Global subscriptions
+        self.create_subscription(Bool, '/safety_auto_stop', self._on_auto_stop_toggle, 1)
 
         # Timers
         self.create_timer(1.0, self._check_connection_timeouts)
@@ -385,6 +396,19 @@ class AlertMonitorNode(Node):
         msg.data = json.dumps(list(self.alert_buffer))
         self.history_pub.publish(msg)
 
+    # ── Auto-stop toggle ────────────────────────────────────────────────────
+
+    def _publish_auto_stop_status(self) -> None:
+        msg = Bool()
+        msg.data = self.auto_stop_enabled
+        self.auto_stop_status_pub.publish(msg)
+        _auto_stop_gauge.set(1 if self.auto_stop_enabled else 0)
+
+    def _on_auto_stop_toggle(self, msg: Bool) -> None:
+        self.auto_stop_enabled = msg.data
+        self._publish_auto_stop_status()
+        self.get_logger().info(f'Auto-stop {"enabled" if msg.data else "disabled"}')
+
     # ── Alert dispatch ──────────────────────────────────────────────────────
 
     def _clear_alert(self, robot_idx: int, *cond_ids: str) -> None:
@@ -407,6 +431,13 @@ class AlertMonitorNode(Node):
             return
         self.active_conditions.add(key)
 
+        if self.auto_stop_enabled and severity == 'critical':
+            stop = Twist()
+            pub = self.cmd_vel_pubs.get(robot_idx)
+            if pub:
+                pub.publish(stop)
+
+        now = time.time()
         alert = {
             'id': str(uuid.uuid4()),
             'timestamp': now,

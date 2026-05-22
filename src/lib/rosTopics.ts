@@ -79,6 +79,18 @@ export const TOPICS = {
     type: "std_msgs/String",
     perRobot: false,
   },
+
+  // ── Safety auto-stop (toggle command + status echo) ──
+  safetyAutoStop: {
+    path: "/safety_auto_stop",
+    type: "std_msgs/Bool",
+    perRobot: false,
+  },
+  safetyAutoStopStatus: {
+    path: "/safety_auto_stop_status",
+    type: "std_msgs/Bool",
+    perRobot: false,
+  },
 } as const satisfies Record<string, TopicEntry>;
 
 export type TopicKey = keyof typeof TOPICS;

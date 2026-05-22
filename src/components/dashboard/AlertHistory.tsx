@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ExternalLink, Shield, ShieldOff } from 'lucide-react';
 import { useROS } from '@/hooks/useROS';
 import { TOPICS } from '@/lib/rosTopics';
 import type { AlertMessage, AlertSeverity, AlertType } from '@/types/ros';
@@ -37,8 +37,14 @@ function formatTime(timestamp: number): string {
 
 export default function AlertHistory() {
   const [alerts, setAlerts] = useState<AlertMessage[]>([]);
+  const [autoStopEnabled, setAutoStopEnabled] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const { subscribe, isConnected } = useROS({ url: 'ws://localhost:9090' });
+  const { subscribe, publish, isConnected } = useROS({ url: 'ws://localhost:9090' });
+
+  function toggleAutoStop() {
+    const next = !autoStopEnabled;
+    publish(TOPICS.safetyAutoStop.path, TOPICS.safetyAutoStop.type, { data: next });
+  }
 
   useEffect(() => {
     const unsubAlert = subscribe<StringMessage>(
@@ -73,9 +79,16 @@ export default function AlertHistory() {
       }
     );
 
+    const unsubAutoStop = subscribe<{ data: boolean }>(
+      TOPICS.safetyAutoStopStatus.path,
+      TOPICS.safetyAutoStopStatus.type,
+      (msg) => setAutoStopEnabled(msg.data),
+    );
+
     return () => {
       unsubAlert();
       unsubHistory();
+      unsubAutoStop();
     };
   }, [subscribe]);
 
@@ -92,8 +105,22 @@ export default function AlertHistory() {
           />
           <span className="text-xs text-gray-500">({alerts.length})</span>
         </div>
-        <a
-          href={GRAFANA_URL}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleAutoStop}
+            disabled={!isConnected}
+            title={autoStopEnabled ? 'Auto-stop ON — click to disable' : 'Auto-stop OFF — click to enable'}
+            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 ${
+              autoStopEnabled
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
+            }`}
+          >
+            {autoStopEnabled ? <Shield className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+            {autoStopEnabled ? 'Auto-stop ON' : 'Auto-stop OFF'}
+          </button>
+          <a
+            href={GRAFANA_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#00a5ff] transition-colors"
@@ -101,6 +128,7 @@ export default function AlertHistory() {
           <ExternalLink className="w-3 h-3" />
           Grafana
         </a>
+        </div>
       </div>
 
       {/* Alert list */}
