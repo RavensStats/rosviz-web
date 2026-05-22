@@ -22,6 +22,8 @@ import json
 import math
 import os
 import pathlib
+import signal
+import sys
 import time
 import uuid
 from collections import deque
@@ -422,7 +424,9 @@ class AlertMonitorNode(Node):
     def _save_alert_history(self) -> None:
         try:
             self._history_file.parent.mkdir(parents=True, exist_ok=True)
-            self._history_file.write_text(json.dumps(list(self.alert_buffer)))
+            tmp = self._history_file.with_suffix('.tmp')
+            tmp.write_text(json.dumps(list(self.alert_buffer)))
+            tmp.replace(self._history_file)   # atomic on Linux (POSIX rename)
         except Exception as e:
             self.get_logger().warn(f'Could not save alert history: {e}')
 
@@ -498,6 +502,17 @@ def main() -> None:
     n = int(os.environ.get('NUM_ROBOTS', '3'))
     start_http_server(8888)
     node = AlertMonitorNode(n)
+
+    def _shutdown(signum, frame):
+        node.get_logger().info('Shutdown signal received — saving alert history')
+        node._save_alert_history()
+        node.destroy_node()
+        rclpy.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

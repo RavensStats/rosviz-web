@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, ExternalLink, Shield, ShieldOff } from 'lucide-react';
 import { useROS } from '@/hooks/useROS';
 import { TOPICS } from '@/lib/rosTopics';
@@ -37,6 +37,42 @@ function formatTime(timestamp: number): string {
   });
 }
 
+function formatMeasurement(type: AlertType, value: number, threshold: number): string {
+  switch (type) {
+    case 'COLLISION':         return `${value.toFixed(2)} m / limit ${threshold.toFixed(2)} m`;
+    case 'VELOCITY_EXCEEDED': return `${value.toFixed(2)} m/s / limit ${threshold.toFixed(2)} m/s`;
+    case 'CONNECTION_LOSS':   return `silent ${value.toFixed(0)} s / limit ${threshold.toFixed(0)} s`;
+    case 'LOW_BATTERY':       return `${value.toFixed(0)}% / limit ${threshold.toFixed(0)}%`;
+    case 'IMPACT_DETECTED':   return `${value.toFixed(1)} m/s² / limit ${threshold.toFixed(1)} m/s²`;
+    case 'TILT_WARNING':      return `${value.toFixed(1)}° / limit ${threshold.toFixed(1)}°`;
+    case 'MOTOR_STALL':       return `${value.toFixed(3)} rad/s / limit ${threshold.toFixed(3)} rad/s`;
+    case 'GEOFENCE_BREACH':   return `${value.toFixed(1)} m from origin`;
+    default:                  return `${value.toFixed(2)} / ${threshold.toFixed(2)}`;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      try {
+        const stored: AlertMessage[] = JSON.parse(localStorage.getItem(LS_ALERTS_KEY) ?? '[]');
+        const ackedRaw: string[] = JSON.parse(localStorage.getItem(LS_ACKED_KEY) ?? '[]');
+        const ackedSet = new Set(ackedRaw);
+        const trimmed = [
+          ...stored.filter(a => !ackedSet.has(a.id)),
+          ...stored.filter(a => ackedSet.has(a.id)).slice(-10),
+        ].slice(-MAX_ALERTS);
+        localStorage.setItem(LS_ALERTS_KEY, JSON.stringify(trimmed));
+        localStorage.setItem(key, value);
+      } catch {
+        // Storage completely full — skip persistence this cycle
+      }
+    }
+  }
+}
+
 function loadAlerts(): AlertMessage[] {
   try {
     return JSON.parse(localStorage.getItem(LS_ALERTS_KEY) ?? '[]');
@@ -58,13 +94,33 @@ export default function AlertHistory() {
   const [autoStopEnabled, setAutoStopEnabled] = useState(false);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(loadAcknowledged);
   const [missedCount, setMissedCount] = useState(0);
+  const [filterSeverity, setFilterSeverity] = useState<'all' | AlertSeverity>('all');
+  const [filterRobotId, setFilterRobotId] = useState<number | null>(null);
   const disconnectTimeRef = useRef<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const { subscribe, publish, isConnected } = useROS({ url: 'ws://localhost:9090' });
 
+  const robotIds = useMemo(
+    () => [...new Set(alerts.map(a => a.robot_id))].sort((a, b) => a - b),
+    [alerts]
+  );
+
+  const filteredAlerts = useMemo(
+    () => alerts.filter(a =>
+      (filterSeverity === 'all' || a.severity === filterSeverity) &&
+      (filterRobotId === null || a.robot_id === filterRobotId)
+    ),
+    [alerts, filterSeverity, filterRobotId]
+  );
+
+  const critUnacked = useMemo(
+    () => alerts.filter(a => a.severity === 'critical' && !acknowledgedIds.has(a.id)).length,
+    [alerts, acknowledgedIds]
+  );
+
   // Persist alerts to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem(LS_ALERTS_KEY, JSON.stringify(alerts));
+    safeSetItem(LS_ALERTS_KEY, JSON.stringify(alerts));
   }, [alerts]);
 
   // Track disconnection windows to report missed alerts on reconnect
@@ -87,7 +143,16 @@ export default function AlertHistory() {
   function acknowledge(id: string) {
     setAcknowledgedIds(prev => {
       const next = new Set(prev).add(id);
-      localStorage.setItem(LS_ACKED_KEY, JSON.stringify([...next]));
+      safeSetItem(LS_ACKED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  function acknowledgeAll() {
+    setAcknowledgedIds(prev => {
+      const next = new Set(prev);
+      filteredAlerts.forEach(a => next.add(a.id));
+      safeSetItem(LS_ACKED_KEY, JSON.stringify([...next]));
       return next;
     });
   }
@@ -150,6 +215,11 @@ export default function AlertHistory() {
             }`}
           />
           <span className="text-xs text-gray-500">({alerts.length})</span>
+          {critUnacked > 0 && (
+            <span className="bg-red-600 text-white text-xs px-1.5 rounded font-bold leading-4">
+              {critUnacked} CRIT
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -167,15 +237,50 @@ export default function AlertHistory() {
           </button>
           <a
             href={GRAFANA_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#00a5ff] transition-colors"
-        >
-          <ExternalLink className="w-3 h-3" />
-          Grafana
-        </a>
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#00a5ff] transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Grafana
+          </a>
         </div>
       </div>
+
+      {/* Filter + ack-all row */}
+      {alerts.length > 0 && (
+        <div className="flex items-center gap-1 mb-1 flex-shrink-0 flex-wrap">
+          {(['all', 'critical', 'warning'] as const).map(s => (
+            <button key={s} onClick={() => setFilterSeverity(s)}
+              className={`text-xs px-1.5 py-0.5 rounded ${
+                filterSeverity === s ? 'bg-[#00a5ff] text-white' : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
+              }`}>
+              {s === 'all' ? 'All' : s === 'critical' ? 'CRIT' : 'WARN'}
+            </button>
+          ))}
+          <span className="text-gray-600 text-xs">|</span>
+          <button onClick={() => setFilterRobotId(null)}
+            className={`text-xs px-1.5 py-0.5 rounded ${
+              filterRobotId === null ? 'bg-[#00a5ff] text-white' : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
+            }`}>
+            All robots
+          </button>
+          {robotIds.map(id => (
+            <button key={id} onClick={() => setFilterRobotId(id)}
+              className={`text-xs px-1.5 py-0.5 rounded ${
+                filterRobotId === id ? 'bg-[#00a5ff] text-white' : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
+              }`}>
+              R{id}
+            </button>
+          ))}
+          {filteredAlerts.some(a => !acknowledgedIds.has(a.id)) && (
+            <button onClick={acknowledgeAll}
+              className="text-xs text-gray-500 hover:text-white ml-auto">
+              Ack all
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Missed-alert banner */}
       {missedCount > 0 && (
@@ -192,10 +297,12 @@ export default function AlertHistory() {
 
       {/* Alert list */}
       <div ref={listRef} className="flex-1 overflow-y-auto space-y-1 pr-0.5 min-h-0">
-        {alerts.length === 0 ? (
-          <div className="text-xs text-gray-500 text-center mt-6">No alerts</div>
+        {filteredAlerts.length === 0 ? (
+          <div className="text-xs text-gray-500 text-center mt-6">
+            {alerts.length === 0 ? 'No alerts' : 'No alerts match current filter'}
+          </div>
         ) : (
-          alerts.map(alert => {
+          filteredAlerts.map(alert => {
             const acked = acknowledgedIds.has(alert.id);
             return (
               <div
@@ -214,6 +321,9 @@ export default function AlertHistory() {
                   </div>
                   <div className="text-xs text-gray-500 mt-0.5">
                     Robot {alert.robot_id} · {formatTime(alert.timestamp)}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5 font-mono">
+                    {formatMeasurement(alert.alert_type, alert.value, alert.threshold)}
                   </div>
                 </div>
                 {!acked && (
