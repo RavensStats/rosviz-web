@@ -22,6 +22,7 @@ contactPoints:
             **[{{ range .Alerts }}{{ .Labels.severity | upper }}{{ end }}]
             {{ range .Alerts }}{{ .Labels.alert_type }}{{ end }}**
             {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+            {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
         disableResolveMessage: false
 
 policies:
@@ -47,7 +48,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot obstacle detected'
+          summary: 'Robot {{ $labels.robot_id }}: collision risk'
+          description: 'Min scan range {{ printf "%.2f" $values.A.Value }} m'
         labels:
           severity: critical
           alert_type: COLLISION
@@ -58,7 +60,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_min_scan_range < on(robot_id) group_left() robot_collision_threshold
+              expr: (robot_min_scan_range < on(robot_id) group_left() robot_collision_threshold) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -88,7 +90,7 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting
 
       - uid: robot-velocity-alert
@@ -96,7 +98,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot velocity too high'
+          summary: 'Robot {{ $labels.robot_id }}: velocity exceeded'
+          description: 'Measured velocity {{ printf "%.2f" $values.A.Value }} m/s or rad/s'
         labels:
           severity: warning
           alert_type: VELOCITY_EXCEEDED
@@ -107,7 +110,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_velocity_linear > 0.5
+              expr: ((robot_velocity_linear > 0.5) or (robot_velocity_angular > 2.0)) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -137,7 +140,7 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting
 
       - uid: robot-tilt-alert
@@ -145,7 +148,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot tilt angle critical'
+          summary: 'Robot {{ $labels.robot_id }}: tilt warning'
+          description: 'Tilt angle {{ printf "%.1f" $values.A.Value }}°'
         labels:
           severity: critical
           alert_type: TILT_WARNING
@@ -156,7 +160,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_tilt_angle_deg > 20
+              expr: (robot_tilt_angle_deg > 20) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -186,7 +190,7 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting
 
       - uid: robot-geofence-alert
@@ -194,7 +198,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot outside permitted area'
+          summary: 'Robot {{ $labels.robot_id }}: geofence breach'
+          description: 'Robot outside permitted area'
         labels:
           severity: critical
           alert_type: GEOFENCE_BREACH
@@ -205,7 +210,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_geofence_status > 0
+              expr: (robot_geofence_status > 0) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -235,7 +240,7 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting
 
       - uid: robot-battery-alert
@@ -243,7 +248,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot battery low'
+          summary: 'Robot {{ $labels.robot_id }}: low battery'
+          description: 'Battery {{ printf "%.0f" $values.A.Value }}%'
         labels:
           severity: warning
           alert_type: LOW_BATTERY
@@ -254,7 +260,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_battery_percentage < 20
+              expr: (robot_battery_percentage < 20) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -284,7 +290,7 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting
 
       - uid: robot-connection-alert
@@ -292,7 +298,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot not publishing sensor data'
+          summary: 'Robot {{ $labels.robot_id }}: connection lost'
+          description: 'No sensor data received'
         labels:
           severity: critical
           alert_type: CONNECTION_LOSS
@@ -341,7 +348,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot wheels stalled under active command'
+          summary: 'Robot {{ $labels.robot_id }}: motor stall'
+          description: 'Wheel velocity {{ printf "%.3f" $values.A.Value }} rad/s under active command'
         labels:
           severity: warning
           alert_type: MOTOR_STALL
@@ -352,7 +360,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_motor_stall_status > 0
+              expr: (robot_motor_stall_status > 0) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -382,7 +390,7 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting
 
       - uid: robot-impact-alert
@@ -390,7 +398,8 @@ groups:
         condition: threshold
         for: 10s
         annotations:
-          summary: 'Robot horizontal acceleration spike'
+          summary: 'Robot {{ $labels.robot_id }}: impact detected'
+          description: 'Horizontal acceleration {{ printf "%.1f" $values.A.Value }} m/s²'
         labels:
           severity: warning
           alert_type: IMPACT_DETECTED
@@ -401,7 +410,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: robot_imu_accel_horiz > 8
+              expr: (robot_imu_accel_horiz > 8) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -431,5 +440,5 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Alerting

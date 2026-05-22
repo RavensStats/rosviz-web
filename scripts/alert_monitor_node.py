@@ -67,6 +67,7 @@ _alert_counter = Counter(
 )
 _scan_gauge      = Gauge('robot_min_scan_range',    'Minimum laser scan range (m)',       ['robot_id'])
 _vel_lin_gauge   = Gauge('robot_velocity_linear',   'Linear velocity X (m/s)',            ['robot_id'])
+_vel_ang_gauge   = Gauge('robot_velocity_angular',  'Angular velocity Z (rad/s)',          ['robot_id'])
 _bat_pct_gauge   = Gauge('robot_battery_percentage','Battery percentage (0-100)',          ['robot_id'])
 _imu_accel_gauge = Gauge('robot_imu_accel_horiz',   'Horizontal acceleration magnitude (m/s²)', ['robot_id'])
 _tilt_gauge      = Gauge('robot_tilt_angle_deg',    'Max roll/pitch angle (degrees)',      ['robot_id'])
@@ -250,6 +251,7 @@ class AlertMonitorNode(Node):
         ang_z = msg.twist.twist.angular.z
         self.last_velocity[idx] = abs(lin_x)
         _vel_lin_gauge.labels(robot_id=str(idx)).set(abs(lin_x))
+        _vel_ang_gauge.labels(robot_id=str(idx)).set(abs(ang_z))
         if abs(lin_x) > self.vel_linear_max or abs(ang_z) > self.vel_angular_max:
             label = (f'linear vel {lin_x:.2f} m/s' if abs(lin_x) > self.vel_linear_max
                      else f'angular vel {ang_z:.2f} rad/s')
