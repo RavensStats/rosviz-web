@@ -66,9 +66,22 @@ const SensorData = dynamic(
   }
 );
 
+const AlertHistory = dynamic(
+  () => import('./AlertHistory'),
+  {
+    loading: () => (
+      <div className="h-full bg-[#1a1a1a] rounded-sm p-2 border border-[#2a2a2a] flex items-center justify-center">
+        <span className="text-gray-400">Loading Alerts...</span>
+      </div>
+    ),
+    ssr: false
+  }
+);
+
 export default function DashboardClient() {
   const mainSplitRef = useRef(null);
   const leftSplitRef = useRef(null);
+  const rightSplitRef = useRef(null);
   const [activeTab, setActiveTab] = useState('dashboard');
 
 
@@ -89,6 +102,7 @@ export default function DashboardClient() {
   useEffect(() => {
     let mainSplit: Split.Instance;
     let leftSplit: Split.Instance;
+    let rightSplit: Split.Instance;
 
     if (activeTab === 'dashboard' && mainSplitRef.current && leftSplitRef.current) {
       // Initialize main horizontal split
@@ -120,11 +134,27 @@ export default function DashboardClient() {
           return gutter;
         },
       });
+
+      // Initialize right vertical split (Controls top, AlertHistory bottom)
+      rightSplit = Split(['.right-top', '.right-bottom'], {
+        sizes: [60, 40],
+        minSize: [200, 150],
+        direction: 'vertical',
+        gutterSize: 4,
+        snapOffset: 0,
+        cursor: 'row-resize',
+        gutter: (index, direction) => {
+          const gutter = document.createElement('div');
+          gutter.className = `gutter gutter-${direction} bg-[#232323] hover:bg-[#00a5ff] transition-colors duration-150`;
+          return gutter;
+        },
+      });
     }
 
     return () => {
       mainSplit?.destroy();
       leftSplit?.destroy();
+      rightSplit?.destroy();
     };
   }, [activeTab, hasRobot]);
 
@@ -216,15 +246,20 @@ export default function DashboardClient() {
             </div>
           </div>
 
-          {/* Right Panel - Full Controls */}
-          <div className="right-panel h-full">
-            <Suspense fallback={
-              <div className="h-full bg-[#1e1e1e] rounded-sm flex items-center justify-center">
-                <span className="text-gray-400">Loading Controls...</span>
-              </div>
-            }>
-              <Controls key={selectedRobotId} robotId={selectedRobotId} />
-            </Suspense>
+          {/* Right Panel - Controls (top) + Alert History (bottom) */}
+          <div className="right-panel h-full flex flex-col" ref={rightSplitRef}>
+            <div className="right-top">
+              <Suspense fallback={
+                <div className="h-full bg-[#1e1e1e] rounded-sm flex items-center justify-center">
+                  <span className="text-gray-400">Loading Controls...</span>
+                </div>
+              }>
+                <Controls key={selectedRobotId} robotId={selectedRobotId} />
+              </Suspense>
+            </div>
+            <div className="right-bottom">
+              <AlertHistory />
+            </div>
           </div>
         </div>
       ) : (

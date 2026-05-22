@@ -160,3 +160,17 @@ export interface TransformStamped {
 export interface TFMessage {
   transforms: TransformStamped[];
 }
+
+export type AlertSeverity = 'warning' | 'critical';
+export type AlertType = 'COLLISION' | 'VELOCITY_EXCEEDED' | 'CONNECTION_LOSS' | 'LOW_BATTERY';
+
+export interface AlertMessage {
+  id: string;
+  timestamp: number;
+  robot_id: number;
+  alert_type: AlertType;
+  severity: AlertSeverity;
+  message: string;
+  value: number;
+  threshold: number;
+}

@@ -106,6 +106,12 @@ python3 /ros_ws/scripts/image_compressor.py &
 PIDS+=($!)
 sleep 1
 
+# ── 4b. Alert monitor node ──
+echo "[entrypoint] Starting alert monitor node (Prometheus on :8888)..."
+python3 /ros_ws/scripts/alert_monitor_node.py &
+PIDS+=($!)
+sleep 1
+
 # ── 4 prime. Muxes for individual view topics ──
 echo "[entrypoint] Starting muxes..."
 build_inputs() {

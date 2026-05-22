@@ -1,0 +1,169 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: robot-log
+    receivers:
+      - uid: robot-log-receiver
+        type: webhook
+        settings:
+          url: http://localhost:9999/alerts
+        disableResolveMessage: false
+
+policies:
+  - orgId: 1
+    receiver: robot-log
+    group_by: ['robot_id', 'alert_type']
+    group_wait: 10s
+    group_interval: 30s
+    repeat_interval: 5m
+
+groups:
+  - orgId: 1
+    name: robot-thresholds
+    folder: Robot Monitoring
+    interval: 10s
+    rules:
+      - uid: robot-collision-alert
+        title: Robot Collision Risk
+        condition: threshold
+        for: 0s
+        annotations:
+          summary: 'Robot {{ index $labels "robot_id" }} — obstacle detected ({{ $values.A.Value | printf "%.2f" }}m)'
+        labels:
+          severity: critical
+          alert_type: COLLISION
+        data:
+          - refId: A
+            datasourceUid: '${DS_PROMETHEUS}'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              expr: robot_min_scan_range < 0.2
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: threshold
+            datasourceUid: '-100'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '-100'
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: threshold
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
+
+      - uid: robot-velocity-alert
+        title: Robot Velocity Exceeded
+        condition: threshold
+        for: 0s
+        annotations:
+          summary: 'Robot {{ index $labels "robot_id" }} — velocity too high ({{ $values.A.Value | printf "%.2f" }}m/s)'
+        labels:
+          severity: warning
+          alert_type: VELOCITY_EXCEEDED
+        data:
+          - refId: A
+            datasourceUid: '${DS_PROMETHEUS}'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              expr: robot_velocity_linear > 0.5
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: threshold
+            datasourceUid: '-100'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '-100'
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: threshold
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
+
+      - uid: robot-battery-alert
+        title: Robot Low Battery
+        condition: threshold
+        for: 0s
+        annotations:
+          summary: 'Robot {{ index $labels "robot_id" }} — battery low ({{ $values.A.Value | printf "%.0f" }}%)'
+        labels:
+          severity: warning
+          alert_type: LOW_BATTERY
+        data:
+          - refId: A
+            datasourceUid: '${DS_PROMETHEUS}'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              expr: robot_battery_percentage < 20
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: threshold
+            datasourceUid: '-100'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '-100'
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: threshold
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
