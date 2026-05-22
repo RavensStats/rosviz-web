@@ -69,7 +69,10 @@ _bat_pct_gauge   = Gauge('robot_battery_percentage','Battery percentage (0-100)'
 _imu_accel_gauge = Gauge('robot_imu_accel_horiz',   'Horizontal acceleration magnitude (m/s²)', ['robot_id'])
 _tilt_gauge      = Gauge('robot_tilt_angle_deg',    'Max roll/pitch angle (degrees)',      ['robot_id'])
 _geofence_gauge  = Gauge('robot_geofence_status',   'Geofence violation (1=breach, 0=ok)', ['robot_id'])
-_auto_stop_gauge = Gauge('robot_safety_auto_stop_enabled', 'Auto-stop feature enabled (1=on)')
+_auto_stop_gauge   = Gauge('robot_safety_auto_stop_enabled', 'Auto-stop feature enabled (1=on)')
+_conn_status_gauge = Gauge('robot_connection_status',       'Connection status (1=ok, 0=lost)',  ['robot_id'])
+_stall_gauge       = Gauge('robot_motor_stall_status',      'Motor stall (1=stalling, 0=ok)',    ['robot_id'])
+_coll_thresh_gauge = Gauge('robot_collision_threshold',     'Dynamic collision threshold (m)',    ['robot_id'])
 
 
 class AlertMonitorNode(Node):
@@ -101,6 +104,10 @@ class AlertMonitorNode(Node):
             os.environ.get('ALERT_HISTORY_FILE', '/data/alert_history.json')
         )
         self._load_alert_history()
+
+        for i in range(num_robots):
+            _conn_status_gauge.labels(robot_id=str(i)).set(1)
+            _stall_gauge.labels(robot_id=str(i)).set(0)
         self.last_msg_time: dict = {}     # robot_idx -> timestamp
         self.last_velocity: dict = {}     # robot_idx -> abs linear velocity (m/s)
         self.real_battery: set = set()    # robot indices with real BatteryState msgs
@@ -193,6 +200,7 @@ class AlertMonitorNode(Node):
 
         crit_thresh = self.scan_min_m + speed * self.scan_reaction_time_s
         warn_thresh = 2.0 * crit_thresh
+        _coll_thresh_gauge.labels(robot_id=str(idx)).set(crit_thresh)
 
         # ── Forward ±45° ──────────────────────────────────────────────
         if forward_min < crit_thresh:
@@ -348,6 +356,7 @@ class AlertMonitorNode(Node):
             if self.stall_start_time.get(idx) is None:
                 self.stall_start_time[idx] = time.time()
             elif time.time() - self.stall_start_time[idx] >= self.stall_duration_s:
+                _stall_gauge.labels(robot_id=str(idx)).set(1)
                 self._fire_alert(
                     idx, 'MOTOR_STALL', 'warning',
                     f'{ns}: wheels stalled (vel {max_vel:.3f} rad/s)',
@@ -355,6 +364,7 @@ class AlertMonitorNode(Node):
                 )
         else:
             self.stall_start_time[idx] = None
+            _stall_gauge.labels(robot_id=str(idx)).set(0)
             self._clear_alert(idx, 'MOTOR_STALL')
 
     # ── Timer callbacks ─────────────────────────────────────────────────────
@@ -388,12 +398,14 @@ class AlertMonitorNode(Node):
         for idx in range(self.num_robots):
             elapsed = now - self.last_msg_time.get(idx, now)
             if elapsed > self.conn_timeout_s:
+                _conn_status_gauge.labels(robot_id=str(idx)).set(0)
                 self._fire_alert(
                     idx, 'CONNECTION_LOSS', 'critical',
                     f'tb3_{idx}: no data for {elapsed:.0f}s',
                     elapsed, self.conn_timeout_s
                 )
             else:
+                _conn_status_gauge.labels(robot_id=str(idx)).set(1)
                 self._clear_alert(idx, 'CONNECTION_LOSS')
 
     def _load_alert_history(self) -> None:

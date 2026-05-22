@@ -129,6 +129,7 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_FEATURE_TOGGLES_ENABLE=ngalert
       - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-http://prometheus:9090/-/healthy}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro

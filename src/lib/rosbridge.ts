@@ -20,6 +20,9 @@ class ROSBridge extends EventEmitter {
   > = new Map();
   private connectPromise: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt: number = 0;
+  private readonly RECONNECT_BASE_MS = 1000;
+  private readonly RECONNECT_MAX_MS = 30000;
 
   async connect(url: string = "ws://localhost:9090"): Promise<void> {
     if (this.connected) return;
@@ -34,6 +37,7 @@ class ROSBridge extends EventEmitter {
         this.ws.onopen = () => {
           console.log("Connected to ROSBridge server");
           this.connected = true;
+          this.reconnectAttempt = 0;
           this.emit("connected");
           this.resubscribeAll();
           this.connectPromise = null;
@@ -253,17 +257,24 @@ class ROSBridge extends EventEmitter {
     }
   }
 
-  private scheduleReconnect(delayMs: number = 3000): void {
+  private scheduleReconnect(): void {
     if (this.reconnectTimer || !this.url) return;
+    const base = Math.min(
+      this.RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt),
+      this.RECONNECT_MAX_MS
+    );
+    const jitter = base * 0.2 * (Math.random() * 2 - 1); // ±20%
+    const delay = Math.round(base + jitter);
+    this.reconnectAttempt++;
+    console.log(`Reconnecting to ROSBridge in ${delay}ms (attempt ${this.reconnectAttempt})...`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (!this.connected) {
-        console.log("Reconnecting to ROSBridge...");
         this.connect(this.url).catch(() => {
           // onclose will schedule the next attempt
         });
       }
-    }, delayMs);
+    }, delay);
   }
 
   isConnected(): boolean {
