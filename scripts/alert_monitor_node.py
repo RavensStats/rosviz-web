@@ -77,6 +77,7 @@ class AlertMonitorNode(Node):
 
         # Thresholds (env-overridable)
         self.scan_min_m = _collision_threshold()
+        self.scan_reaction_time_s = float(os.environ.get('ALERT_SCAN_REACTION_S', '0.5'))
         self.vel_linear_max = float(os.environ.get('ALERT_VEL_LINEAR_MAX', '0.50'))
         self.vel_angular_max = float(os.environ.get('ALERT_VEL_ANGULAR_MAX', '2.00'))
         self.conn_timeout_s = float(os.environ.get('ALERT_CONN_TIMEOUT_S', '5.0'))
@@ -92,7 +93,7 @@ class AlertMonitorNode(Node):
 
         # State
         self.alert_buffer: deque = deque(maxlen=50)
-        self.last_alert_time: dict = {}   # (robot_idx, alert_type) -> timestamp
+        self.active_conditions: set = set()  # string keys: "{robot_idx}:{condition_id}"
         self.last_msg_time: dict = {}     # robot_idx -> timestamp
         self.last_velocity: dict = {}     # robot_idx -> abs linear velocity (m/s)
         self.real_battery: set = set()    # robot indices with real BatteryState msgs
@@ -170,27 +171,50 @@ class AlertMonitorNode(Node):
         _scan_gauge.labels(robot_id=str(idx)).set(overall_min)
 
         cmd = self.last_cmd_vel.get(idx)
+        speed     = abs(cmd[0]) if cmd is not None else 0.0
         reversing = cmd is not None and cmd[0] < -0.05
+        turning   = cmd is not None and abs(cmd[1]) > 0.1
 
-        if forward_min < self.scan_min_m:
-            self._fire_alert(
-                idx, 'COLLISION', 'critical',
+        crit_thresh = self.scan_min_m + speed * self.scan_reaction_time_s
+        warn_thresh = 2.0 * crit_thresh
+
+        # ── Forward ±45° ──────────────────────────────────────────────
+        if forward_min < crit_thresh:
+            self._clear_alert(idx, 'COLLISION_FWD_WARN')
+            self._fire_alert(idx, 'COLLISION', 'critical',
                 f'{ns}: obstacle ahead at {forward_min:.2f} m',
-                forward_min, self.scan_min_m
-            )
-        if rear_min < self.scan_min_m:
+                forward_min, crit_thresh, cond='COLLISION_FWD_CRIT')
+        elif forward_min < warn_thresh:
+            self._clear_alert(idx, 'COLLISION_FWD_CRIT')
+            self._fire_alert(idx, 'COLLISION', 'warning',
+                f'{ns}: obstacle ahead at {forward_min:.2f} m',
+                forward_min, warn_thresh, cond='COLLISION_FWD_WARN')
+        else:
+            self._clear_alert(idx, 'COLLISION_FWD_CRIT', 'COLLISION_FWD_WARN')
+
+        # ── Rear ±45° ─────────────────────────────────────────────────
+        if rear_min < crit_thresh:
             severity = 'critical' if reversing else 'warning'
-            self._fire_alert(
-                idx, 'COLLISION', severity,
+            self._clear_alert(idx, 'COLLISION_REAR_WARN')
+            self._fire_alert(idx, 'COLLISION', severity,
                 f'{ns}: obstacle behind at {rear_min:.2f} m',
-                rear_min, self.scan_min_m
-            )
+                rear_min, crit_thresh, cond='COLLISION_REAR_CRIT')
+        elif rear_min < warn_thresh and reversing:
+            self._clear_alert(idx, 'COLLISION_REAR_CRIT')
+            self._fire_alert(idx, 'COLLISION', 'warning',
+                f'{ns}: obstacle behind at {rear_min:.2f} m',
+                rear_min, warn_thresh, cond='COLLISION_REAR_WARN')
+        else:
+            self._clear_alert(idx, 'COLLISION_REAR_CRIT', 'COLLISION_REAR_WARN')
+
+        # ── Sides — critical if turning (sweeping into wall), else warning ──
         if side_min < self.scan_min_m:
-            self._fire_alert(
-                idx, 'COLLISION', 'warning',
+            side_sev = 'critical' if turning else 'warning'
+            self._fire_alert(idx, 'COLLISION', side_sev,
                 f'{ns}: obstacle nearby at {side_min:.2f} m',
-                side_min, self.scan_min_m
-            )
+                side_min, self.scan_min_m, cond='COLLISION_SIDE')
+        else:
+            self._clear_alert(idx, 'COLLISION_SIDE')
 
     def _on_odom(self, msg: Odometry, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
@@ -198,18 +222,17 @@ class AlertMonitorNode(Node):
         ang_z = msg.twist.twist.angular.z
         self.last_velocity[idx] = abs(lin_x)
         _vel_lin_gauge.labels(robot_id=str(idx)).set(abs(lin_x))
-        if abs(lin_x) > self.vel_linear_max:
+        if abs(lin_x) > self.vel_linear_max or abs(ang_z) > self.vel_angular_max:
+            label = (f'linear vel {lin_x:.2f} m/s' if abs(lin_x) > self.vel_linear_max
+                     else f'angular vel {ang_z:.2f} rad/s')
             self._fire_alert(
                 idx, 'VELOCITY_EXCEEDED', 'warning',
-                f'{ns}: linear vel {lin_x:.2f} m/s',
-                abs(lin_x), self.vel_linear_max
+                f'{ns}: {label}',
+                max(abs(lin_x), abs(ang_z)), max(self.vel_linear_max, self.vel_angular_max)
             )
-        if abs(ang_z) > self.vel_angular_max:
-            self._fire_alert(
-                idx, 'VELOCITY_EXCEEDED', 'warning',
-                f'{ns}: angular vel {ang_z:.2f} rad/s',
-                abs(ang_z), self.vel_angular_max
-            )
+        else:
+            self._clear_alert(idx, 'VELOCITY_EXCEEDED')
+
         # GEOFENCE_BREACH
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
@@ -224,6 +247,8 @@ class AlertMonitorNode(Node):
                 f'{ns}: out of bounds ({x:.1f}, {y:.1f})',
                 math.sqrt(x * x + y * y), 0.0
             )
+        else:
+            self._clear_alert(idx, 'GEOFENCE_BREACH')
 
     def _on_battery(self, msg: BatteryState, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
@@ -234,18 +259,15 @@ class AlertMonitorNode(Node):
         self.real_battery.add(idx)
         self.simulated_battery[idx] = pct
         _bat_pct_gauge.labels(robot_id=str(idx)).set(pct)
-        if pct < self.bat_pct_min:
+        if pct < self.bat_pct_min or volt < self.bat_volt_min:
+            label = (f'battery at {pct:.0f}%' if pct < self.bat_pct_min
+                     else f'voltage at {volt:.1f} V')
             self._fire_alert(
                 idx, 'LOW_BATTERY', 'warning',
-                f'{ns}: battery at {pct:.0f}%',
-                pct, self.bat_pct_min
+                f'{ns}: {label}', pct, self.bat_pct_min
             )
-        if volt < self.bat_volt_min:
-            self._fire_alert(
-                idx, 'LOW_BATTERY', 'warning',
-                f'{ns}: voltage at {volt:.1f} V',
-                volt, self.bat_volt_min
-            )
+        else:
+            self._clear_alert(idx, 'LOW_BATTERY')
 
     def _on_imu(self, msg: Imu, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
@@ -259,6 +281,8 @@ class AlertMonitorNode(Node):
                 f'{ns}: impact {horiz:.1f} m/s²',
                 horiz, self.impact_accel_ms2
             )
+        else:
+            self._clear_alert(idx, 'IMPACT_DETECTED')
         # TILT_WARNING: quaternion → roll/pitch
         qx = msg.orientation.x
         qy = msg.orientation.y
@@ -277,6 +301,8 @@ class AlertMonitorNode(Node):
                 f'{ns}: tilt {tilt_deg:.1f}°',
                 tilt_deg, self.tilt_deg_max
             )
+        else:
+            self._clear_alert(idx, 'TILT_WARNING')
 
     def _on_cmd_vel(self, msg: Twist, ns: str, idx: int) -> None:
         self.last_cmd_vel[idx] = (msg.linear.x, msg.angular.z, time.time())
@@ -313,6 +339,7 @@ class AlertMonitorNode(Node):
                 )
         else:
             self.stall_start_time[idx] = None
+            self._clear_alert(idx, 'MOTOR_STALL')
 
     # ── Timer callbacks ─────────────────────────────────────────────────────
 
@@ -337,6 +364,8 @@ class AlertMonitorNode(Node):
                     f'tb3_{idx}: battery at {pct:.0f}%',
                     pct, self.bat_pct_min
                 )
+            else:
+                self._clear_alert(idx, 'LOW_BATTERY')
 
     def _check_connection_timeouts(self) -> None:
         now = time.time()
@@ -348,6 +377,8 @@ class AlertMonitorNode(Node):
                     f'tb3_{idx}: no data for {elapsed:.0f}s',
                     elapsed, self.conn_timeout_s
                 )
+            else:
+                self._clear_alert(idx, 'CONNECTION_LOSS')
 
     def _publish_history(self) -> None:
         msg = String()
@@ -355,6 +386,10 @@ class AlertMonitorNode(Node):
         self.history_pub.publish(msg)
 
     # ── Alert dispatch ──────────────────────────────────────────────────────
+
+    def _clear_alert(self, robot_idx: int, *cond_ids: str) -> None:
+        for cid in cond_ids:
+            self.active_conditions.discard(f"{robot_idx}:{cid}")
 
     def _fire_alert(
         self,
@@ -364,12 +399,13 @@ class AlertMonitorNode(Node):
         message: str,
         value: float,
         threshold: float,
+        *,
+        cond: str | None = None,
     ) -> None:
-        key = (robot_idx, alert_type)
-        now = time.time()
-        if now - self.last_alert_time.get(key, 0.0) < 1.0:
+        key = f"{robot_idx}:{cond or alert_type}"
+        if key in self.active_conditions:
             return
-        self.last_alert_time[key] = now
+        self.active_conditions.add(key)
 
         alert = {
             'id': str(uuid.uuid4()),
