@@ -2,17 +2,18 @@ apiVersion: 1
 
 contactPoints:
   - orgId: 1
-    name: null-sink
+    name: alert-webhook
     receivers:
-      - uid: null-sink-receiver
+      - uid: alert-webhook-receiver
         type: webhook
         settings:
-          url: http://prometheus:9090/-/healthy
-        disableResolveMessage: true
+          url: ${ALERT_WEBHOOK_URL}
+          httpMethod: POST
+        disableResolveMessage: false
 
 policies:
   - orgId: 1
-    receiver: null-sink
+    receiver: alert-webhook
     group_by: ['robot_id', 'alert_type']
     group_wait: 30s
     group_interval: 5m
@@ -27,7 +28,7 @@ groups:
       - uid: robot-collision-alert
         title: Robot Collision Risk
         condition: threshold
-        for: 0s
+        for: 10s
         annotations:
           summary: 'Robot obstacle detected'
         labels:
@@ -70,13 +71,13 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: NoData
+        noDataState: Alerting
         execErrState: Alerting
 
       - uid: robot-velocity-alert
         title: Robot Velocity Exceeded
         condition: threshold
-        for: 0s
+        for: 10s
         annotations:
           summary: 'Robot velocity too high'
         labels:
@@ -119,13 +120,13 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: NoData
+        noDataState: Alerting
         execErrState: Alerting
 
       - uid: robot-tilt-alert
         title: Robot Tilt Warning
         condition: threshold
-        for: 0s
+        for: 10s
         annotations:
           summary: 'Robot tilt angle critical'
         labels:
@@ -168,13 +169,13 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: NoData
+        noDataState: Alerting
         execErrState: Alerting
 
       - uid: robot-geofence-alert
         title: Robot Geofence Breach
         condition: threshold
-        for: 0s
+        for: 10s
         annotations:
           summary: 'Robot outside permitted area'
         labels:
@@ -217,13 +218,13 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: NoData
+        noDataState: Alerting
         execErrState: Alerting
 
       - uid: robot-battery-alert
         title: Robot Low Battery
         condition: threshold
-        for: 0s
+        for: 10s
         annotations:
           summary: 'Robot battery low'
         labels:
@@ -266,5 +267,5 @@ groups:
               maxDataPoints: 43200
               refId: threshold
               type: threshold
-        noDataState: NoData
+        noDataState: Alerting
         execErrState: Alerting

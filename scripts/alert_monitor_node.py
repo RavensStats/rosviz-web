@@ -21,6 +21,7 @@ Exposes Prometheus metrics on :8888 for Grafana scraping.
 import json
 import math
 import os
+import pathlib
 import time
 import uuid
 from collections import deque
@@ -96,6 +97,10 @@ class AlertMonitorNode(Node):
         self.auto_stop_enabled: bool = False
         self.alert_buffer: deque = deque(maxlen=50)
         self.active_conditions: set = set()  # string keys: "{robot_idx}:{condition_id}"
+        self._history_file = pathlib.Path(
+            os.environ.get('ALERT_HISTORY_FILE', '/data/alert_history.json')
+        )
+        self._load_alert_history()
         self.last_msg_time: dict = {}     # robot_idx -> timestamp
         self.last_velocity: dict = {}     # robot_idx -> abs linear velocity (m/s)
         self.real_battery: set = set()    # robot indices with real BatteryState msgs
@@ -391,10 +396,29 @@ class AlertMonitorNode(Node):
             else:
                 self._clear_alert(idx, 'CONNECTION_LOSS')
 
+    def _load_alert_history(self) -> None:
+        try:
+            if self._history_file.exists():
+                data = json.loads(self._history_file.read_text())
+                self.alert_buffer.extend(data[-self.alert_buffer.maxlen:])
+                self.get_logger().info(
+                    f'Loaded {len(self.alert_buffer)} alerts from {self._history_file}'
+                )
+        except Exception as e:
+            self.get_logger().warn(f'Could not load alert history: {e}')
+
+    def _save_alert_history(self) -> None:
+        try:
+            self._history_file.parent.mkdir(parents=True, exist_ok=True)
+            self._history_file.write_text(json.dumps(list(self.alert_buffer)))
+        except Exception as e:
+            self.get_logger().warn(f'Could not save alert history: {e}')
+
     def _publish_history(self) -> None:
         msg = String()
         msg.data = json.dumps(list(self.alert_buffer))
         self.history_pub.publish(msg)
+        self._save_alert_history()
 
     # ── Auto-stop toggle ────────────────────────────────────────────────────
 
