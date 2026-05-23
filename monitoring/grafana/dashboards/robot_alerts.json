@@ -102,13 +102,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_min_scan_range",
+          "expr": "robot_min_scan_range{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_collision_threshold",
+          "expr": "robot_collision_threshold{robot_id=~\"$robot_id\"}",
           "legendFormat": "Threshold Robot {{robot_id}}",
           "refId": "B"
         }
@@ -161,7 +161,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_velocity_linear",
+          "expr": "robot_velocity_linear{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -217,7 +217,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_battery_percentage",
+          "expr": "robot_battery_percentage{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -259,7 +259,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "floor(increase(robot_alert_total[5m]))",
+          "expr": "floor(increase(robot_alert_total{robot_id=~\"$robot_id\"}[5m]))",
           "legendFormat": "{{alert_type}}",
           "refId": "A"
         }
@@ -301,7 +301,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "floor(increase(robot_alert_total[5m]))",
+          "expr": "floor(increase(robot_alert_total{robot_id=~\"$robot_id\"}[5m]))",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -354,7 +354,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_imu_accel_horiz",
+          "expr": "robot_imu_accel_horiz{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -408,7 +408,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_tilt_angle_deg",
+          "expr": "robot_tilt_angle_deg{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -453,7 +453,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_connection_status",
+          "expr": "robot_connection_status{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -498,7 +498,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_motor_stall_status",
+          "expr": "robot_motor_stall_status{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -551,7 +551,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_velocity_angular",
+          "expr": "robot_velocity_angular{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -596,7 +596,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_geofence_status",
+          "expr": "robot_geofence_status{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -651,7 +651,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "robot_geofence_distance_m",
+          "expr": "robot_geofence_distance_m{robot_id=~\"$robot_id\"}",
           "legendFormat": "Robot {{robot_id}}",
           "refId": "A"
         }
@@ -688,7 +688,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "sum(floor(increase(robot_alert_total{severity=\"critical\"}[5m])))",
+          "expr": "sum(floor(increase(robot_alert_total{severity=\"critical\",robot_id=~\"$robot_id\"}[5m])))",
           "legendFormat": "Critical",
           "refId": "A"
         }
@@ -725,7 +725,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "sum(floor(increase(robot_alert_total{severity=\"warning\"}[5m])))",
+          "expr": "sum(floor(increase(robot_alert_total{severity=\"warning\",robot_id=~\"$robot_id\"}[5m])))",
           "legendFormat": "Warning",
           "refId": "A"
         }
@@ -794,7 +794,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "sum by (robot_id, alert_type, severity) (increase(robot_alert_total[24h]))",
+          "expr": "sum by (robot_id, alert_type, severity) (increase(robot_alert_total{robot_id=~\"$robot_id\"}[24h]))",
           "format": "table",
           "instant": true,
           "legendFormat": "",
@@ -806,12 +806,75 @@
         { "id": "sortBy", "options": { "fields": [{ "displayName": "Value", "desc": true }] } }
       ],
       "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red",   "index": 0, "text": "DOWN" },
+                           "1": { "color": "green", "index": 1, "text": "UP"   } },
+              "type": "value" }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1    }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 56 },
+      "id": 17,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "expr": "robot_alert_node_up",
+          "legendFormat": "Monitor Node",
+          "refId": "A"
+        }
+      ],
+      "title": "Alert Monitor Node Status",
+      "type": "stat"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 38,
   "tags": ["robots", "ros2", "alerts"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+        "definition": "label_values(robot_connection_status, robot_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Robot",
+        "multi": false,
+        "name": "robot_id",
+        "options": [],
+        "query": {
+          "query": "label_values(robot_connection_status, robot_id)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
   "time": { "from": "now-15m", "to": "now" },
   "timepicker": {},
   "timezone": "browser",

@@ -402,6 +402,56 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
+      - uid: robot-monitor-node-alert
+        title: Alert Monitor Node Down
+        condition: threshold
+        for: 30s
+        annotations:
+          summary: 'Alert monitor node is not running'
+          description: 'robot_alert_node_up metric is absent or 0 — the monitoring process has likely crashed'
+        labels:
+          severity: critical
+          alert_type: NODE_DOWN
+        data:
+          - refId: A
+            datasourceUid: prometheus-ds
+            relativeTimeRange:
+              from: 60
+              to: 0
+            model:
+              expr: robot_alert_node_up
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: threshold
+            datasourceUid: '-100'
+            relativeTimeRange:
+              from: 60
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '-100'
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: threshold
+              type: threshold
+        noDataState: Alerting
+        execErrState: Alerting
+
       - uid: robot-brownout-risk-alert
         title: Robot Brownout Risk
         condition: threshold

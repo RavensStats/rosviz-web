@@ -84,6 +84,7 @@ _coll_thresh_gauge = Gauge('robot_collision_threshold',     'Dynamic collision t
 _bat_health_gauge  = Gauge('robot_battery_health',          'Power supply health code',           ['robot_id'])
 _effort_gauge      = Gauge('robot_motor_effort',            'Max wheel joint effort (N·m)',        ['robot_id'])
 _vert_accel_gauge  = Gauge('robot_imu_accel_vert',          'Vertical acceleration (m/s²)',        ['robot_id'])
+_node_up_gauge     = Gauge('robot_alert_node_up',           'Alert monitor node is running (1=up, 0=down)')
 
 
 class AlertMonitorNode(Node):
@@ -612,8 +613,10 @@ def main() -> None:
     n = int(os.environ.get('NUM_ROBOTS', '3'))
     start_http_server(8888)
     node = AlertMonitorNode(n)
+    _node_up_gauge.set(1)
 
     def _shutdown(signum, frame):
+        _node_up_gauge.set(0)
         node.get_logger().info('Shutdown signal received — saving alert history')
         node._save_alert_history()
         node.destroy_node()

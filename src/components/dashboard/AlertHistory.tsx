@@ -100,7 +100,9 @@ export default function AlertHistory() {
   const [missedCount, setMissedCount] = useState(0);
   const [filterSeverity, setFilterSeverity] = useState<'all' | AlertSeverity>('all');
   const [filterRobotId, setFilterRobotId] = useState<number | null>(null);
+  const [critFlash, setCritFlash] = useState(false);
   const disconnectTimeRef = useRef<number | null>(null);
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const { subscribe, publish, isConnected } = useROS({ url: 'ws://localhost:9090' });
 
@@ -186,6 +188,11 @@ export default function AlertHistory() {
         try {
           const alert: AlertMessage = JSON.parse(msg.data);
           setAlerts(prev => [alert, ...prev].slice(0, MAX_ALERTS));
+          if (alert.severity === 'critical') {
+            setCritFlash(true);
+            if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+            flashTimeoutRef.current = setTimeout(() => setCritFlash(false), 2000);
+          }
         } catch (e) {
           console.warn("[AlertHistory] parse failed:", e, "raw:", msg.data);
         }
@@ -221,11 +228,12 @@ export default function AlertHistory() {
       unsubAlert();
       unsubHistory();
       unsubAutoStop();
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     };
   }, [subscribe]);
 
   return (
-    <div className="h-full bg-[#1a1a1a] rounded-sm p-2 border border-[#2a2a2a] flex flex-col">
+    <div className={`h-full bg-[#1a1a1a] rounded-sm p-2 border flex flex-col transition-colors duration-500 ${critFlash ? 'border-red-500' : 'border-[#2a2a2a]'}`}>
       {/* Header */}
       <div className="flex items-center justify-between mb-2 flex-shrink-0">
         <div className="flex items-center gap-2">
