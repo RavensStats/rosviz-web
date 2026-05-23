@@ -84,7 +84,13 @@ _coll_thresh_gauge = Gauge('robot_collision_threshold',     'Dynamic collision t
 _bat_health_gauge  = Gauge('robot_battery_health',          'Power supply health code',           ['robot_id'])
 _effort_gauge      = Gauge('robot_motor_effort',            'Max wheel joint effort (N·m)',        ['robot_id'])
 _vert_accel_gauge  = Gauge('robot_imu_accel_vert',          'Vertical acceleration (m/s²)',        ['robot_id'])
-_node_up_gauge     = Gauge('robot_alert_node_up',           'Alert monitor node is running (1=up, 0=down)')
+_node_up_gauge           = Gauge('robot_alert_node_up',        'Alert monitor node is running (1=up, 0=down)')
+_node_heartbeat_counter  = Counter('robot_alert_node_heartbeat', 'Heartbeat ticks from alert monitor node')
+_thresh_vel_lin_gauge    = Gauge('robot_vel_linear_max',        'Velocity linear threshold (m/s)')
+_thresh_vel_ang_gauge    = Gauge('robot_vel_angular_max',       'Velocity angular threshold (rad/s)')
+_thresh_bat_pct_gauge    = Gauge('robot_battery_pct_min',       'Battery percentage threshold (%)')
+_thresh_impact_gauge     = Gauge('robot_impact_accel_max',      'Impact acceleration threshold (m/s²)')
+_thresh_tilt_gauge       = Gauge('robot_tilt_max_deg',          'Tilt angle threshold (degrees)')
 
 
 class AlertMonitorNode(Node):
@@ -119,6 +125,7 @@ class AlertMonitorNode(Node):
         self.active_conditions: set = set()  # string keys: "{robot_idx}:{condition_id}"
         self.clear_times: dict[str, float] = {}
         self.refire_cooldown_s = float(os.environ.get('ALERT_REFIRE_COOLDOWN_S', '10.0'))
+        self.genuine_clear_s   = float(os.environ.get('ALERT_GENUINE_CLEAR_S',   '2.0'))
         self._history_file = pathlib.Path(
             os.environ.get('ALERT_HISTORY_FILE', '/data/alert_history.json')
         )
@@ -180,7 +187,8 @@ class AlertMonitorNode(Node):
             )
 
         # Global subscriptions
-        self.create_subscription(Bool, '/safety_auto_stop', self._on_auto_stop_toggle, 1)
+        self.create_subscription(Bool,   '/safety_auto_stop',            self._on_auto_stop_toggle, 1)
+        self.create_subscription(String, '/robot_alerts_request_history', lambda _: self._publish_history(), 1)
 
         # Timers
         self.create_timer(1.0, self._check_connection_timeouts)
@@ -578,7 +586,7 @@ class AlertMonitorNode(Node):
         if key in self.active_conditions:
             return
         elapsed = time.time() - self.clear_times.get(key, 0)
-        if elapsed < self.refire_cooldown_s:
+        if elapsed < self.genuine_clear_s:
             return
         self.active_conditions.add(key)
 
@@ -609,11 +617,24 @@ class AlertMonitorNode(Node):
 
 
 def main() -> None:
+    import threading
     rclpy.init()
     n = int(os.environ.get('NUM_ROBOTS', '3'))
     start_http_server(8888)
     node = AlertMonitorNode(n)
     _node_up_gauge.set(1)
+    _thresh_vel_lin_gauge.set(node.vel_linear_max)
+    _thresh_vel_ang_gauge.set(node.vel_angular_max)
+    _thresh_bat_pct_gauge.set(node.bat_pct_min)
+    _thresh_impact_gauge.set(node.impact_accel_ms2)
+    _thresh_tilt_gauge.set(node.tilt_deg_max)
+
+    def _heartbeat_loop():
+        while True:
+            _node_heartbeat_counter.inc()
+            time.sleep(5)
+
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
     def _shutdown(signum, frame):
         _node_up_gauge.set(0)

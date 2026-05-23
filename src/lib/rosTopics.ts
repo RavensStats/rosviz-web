@@ -79,6 +79,11 @@ export const TOPICS = {
     type: "std_msgs/String",
     perRobot: false,
   },
+  robotAlertsRequestHistory: {
+    path: "/robot_alerts_request_history",
+    type: "std_msgs/String",
+    perRobot: false,
+  },
 
   // ── Safety auto-stop (toggle command + status echo) ──
   safetyAutoStop: {

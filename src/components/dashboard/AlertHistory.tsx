@@ -103,6 +103,7 @@ export default function AlertHistory() {
   const [critFlash, setCritFlash] = useState(false);
   const disconnectTimeRef = useRef<number | null>(null);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevConnectedRef = useRef(isConnected);
   const listRef = useRef<HTMLDivElement>(null);
   const { subscribe, publish, isConnected } = useROS({ url: 'ws://localhost:9090' });
 
@@ -138,6 +139,14 @@ export default function AlertHistory() {
   useEffect(() => {
     safeSetItem(LS_ALERTS_KEY, JSON.stringify(alerts));
   }, [alerts]);
+
+  // Request history immediately on reconnect — don't wait for the 5s broadcast timer
+  useEffect(() => {
+    if (isConnected && !prevConnectedRef.current) {
+      publish(TOPICS.robotAlertsRequestHistory.path, TOPICS.robotAlertsRequestHistory.type, { data: '' });
+    }
+    prevConnectedRef.current = isConnected;
+  }, [isConnected, publish]);
 
   // Track disconnection windows to report missed alerts on reconnect
   useEffect(() => {

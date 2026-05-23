@@ -61,7 +61,7 @@ groups:
       - uid: robot-collision-alert
         title: Robot Collision Risk
         condition: threshold
-        for: 10s
+        for: 0s
         annotations:
           summary: 'Robot {{ $labels.robot_id }}: collision risk'
           description: 'Min scan range {{ printf "%.2f" $values.A.Value }} m'
@@ -124,7 +124,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: ((robot_velocity_linear > 0.5) or (robot_velocity_angular > 2.0)) and on(robot_id) (robot_connection_status == 1)
+              expr: ((robot_velocity_linear > scalar(robot_vel_linear_max)) or (robot_velocity_angular > scalar(robot_vel_angular_max))) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -159,7 +159,7 @@ groups:
       - uid: robot-tilt-alert
         title: Robot Tilt Warning
         condition: threshold
-        for: 10s
+        for: 0s
         annotations:
           summary: 'Robot {{ $labels.robot_id }}: tilt warning'
           description: 'Tilt angle {{ printf "%.1f" $values.A.Value }}°'
@@ -173,7 +173,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: (robot_tilt_angle_deg > 20) and on(robot_id) (robot_connection_status == 1)
+              expr: (robot_tilt_angle_deg > scalar(robot_tilt_max_deg)) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -271,7 +271,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: (robot_battery_percentage < 20) and on(robot_id) (robot_connection_status == 1)
+              expr: (robot_battery_percentage < scalar(robot_battery_pct_min)) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -306,7 +306,7 @@ groups:
       - uid: robot-connection-alert
         title: Robot Connection Loss
         condition: threshold
-        for: 10s
+        for: 0s
         annotations:
           summary: 'Robot {{ $labels.robot_id }}: connection lost'
           description: 'No sensor data received'
@@ -419,7 +419,7 @@ groups:
               from: 60
               to: 0
             model:
-              expr: robot_alert_node_up
+              expr: increase(robot_alert_node_heartbeat[30s])
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -505,7 +505,7 @@ groups:
       - uid: robot-impact-alert
         title: Robot Impact Detected
         condition: threshold
-        for: 10s
+        for: 0s
         annotations:
           summary: 'Robot {{ $labels.robot_id }}: impact detected'
           description: 'Horizontal acceleration {{ printf "%.1f" $values.A.Value }} m/s²'
@@ -519,7 +519,7 @@ groups:
               from: 30
               to: 0
             model:
-              expr: (robot_imu_accel_horiz > 8) and on(robot_id) (robot_connection_status == 1)
+              expr: (robot_imu_accel_horiz > scalar(robot_impact_accel_max)) and on(robot_id) (robot_connection_status == 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
