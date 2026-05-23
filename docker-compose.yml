@@ -49,6 +49,7 @@ services:
     # Increase shared memory for Gazebo / DDS
     shm_size: '512m'
     restart: unless-stopped
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8888/metrics"]
       interval: 10s

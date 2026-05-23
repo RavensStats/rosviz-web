@@ -387,6 +387,9 @@ Set `PROMETHEUS_RETENTION` in `.env` (default 30 d) and restart Prometheus. Chec
 **Auto-stop not working**
 The auto-stop toggle in the AlertHistory panel publishes to `/safety_auto_stop`. Verify the toggle shows "Auto-stop ON". Auto-stop only fires a zero-velocity command for `critical` alerts — warning-level alerts do not trigger it.
 
+**Suppressing alerts during planned maintenance**
+Edit `monitoring/grafana/provisioning/alerting/alert_rules.yml` and populate `time_intervals` under `maintenance-window` with your maintenance schedule, then `docker compose restart grafana`. Set `time_intervals: []` to deactivate. The mute timing appears under `http://localhost:3001/alerting/notifications` for verification.
+
 ## Customizing topics
 
 All topic names are defined in the component files under `src/components/dashboard/`. Each component's `useEffect` / `subscribe` call specifies the topic name and message type — change them to match your robot's namespace.

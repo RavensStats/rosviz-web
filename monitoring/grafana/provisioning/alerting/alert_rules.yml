@@ -25,6 +25,19 @@ contactPoints:
             {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
         disableResolveMessage: false
 
+muteTimings:
+  - orgId: 1
+    name: maintenance-window
+    time_intervals: []
+    # To activate: replace time_intervals with a schedule, e.g.:
+    # time_intervals:
+    #   - times:
+    #       - start_time: '22:00'
+    #         end_time:   '06:00'
+    #     weekdays: ['saturday', 'sunday']
+    # Then: docker compose restart grafana
+    # To deactivate: set time_intervals: [] and restart grafana
+
 policies:
   - orgId: 1
     receiver: alert-webhook
@@ -32,6 +45,8 @@ policies:
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 12h
+    mute_time_intervals:
+      - maintenance-window
     routes:
       - receiver: discord
         matchers: []
