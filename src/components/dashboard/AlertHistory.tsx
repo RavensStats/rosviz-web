@@ -106,15 +106,25 @@ export default function AlertHistory() {
   );
 
   const filteredAlerts = useMemo(
-    () => alerts.filter(a =>
-      (filterSeverity === 'all' || a.severity === filterSeverity) &&
-      (filterRobotId === null || a.robot_id === filterRobotId)
-    ),
+    () => alerts
+      .filter(a =>
+        (filterSeverity === 'all' || a.severity === filterSeverity) &&
+        (filterRobotId === null || a.robot_id === filterRobotId)
+      )
+      .sort((a, b) => {
+        if (a.severity !== b.severity) return a.severity === 'critical' ? -1 : 1;
+        return b.timestamp - a.timestamp;
+      }),
     [alerts, filterSeverity, filterRobotId]
   );
 
   const critUnacked = useMemo(
     () => alerts.filter(a => a.severity === 'critical' && !acknowledgedIds.has(a.id)).length,
+    [alerts, acknowledgedIds]
+  );
+
+  const warnUnacked = useMemo(
+    () => alerts.filter(a => a.severity === 'warning' && !acknowledgedIds.has(a.id)).length,
     [alerts, acknowledgedIds]
   );
 
@@ -221,12 +231,17 @@ export default function AlertHistory() {
               isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
             }`}
           />
-          <span className="text-xs text-gray-500">({alerts.length})</span>
-          {critUnacked > 0 && (
-            <span className="bg-red-600 text-white text-xs px-1.5 rounded font-bold leading-4">
-              {critUnacked} CRIT
-            </span>
-          )}
+          <span className="text-xs text-gray-500">
+            {'Crit('}
+            <span className="text-red-400">{alerts.filter(a => a.severity === 'critical').length}</span>
+            {')('}
+            <span className="text-red-400 font-bold">{critUnacked}</span>
+            {') Warn('}
+            <span className="text-yellow-400">{alerts.filter(a => a.severity === 'warning').length}</span>
+            {')('}
+            <span className="text-yellow-400 font-bold">{warnUnacked}</span>
+            {')'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <button
