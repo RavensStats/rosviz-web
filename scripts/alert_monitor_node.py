@@ -63,7 +63,7 @@ def _collision_threshold() -> float:
 
 # ── Prometheus metrics (module-level, shared across all node instances) ──
 _alert_counter = Counter(
-    'robot_alert_total', 'Total alerts fired', ['robot_id', 'alert_type']
+    'robot_alert_total', 'Total alerts fired', ['robot_id', 'alert_type', 'severity']
 )
 _scan_gauge      = Gauge('robot_min_scan_range',    'Minimum laser scan range (m)',       ['robot_id'])
 _vel_lin_gauge   = Gauge('robot_velocity_linear',   'Linear velocity X (m/s)',            ['robot_id'])
@@ -71,7 +71,8 @@ _vel_ang_gauge   = Gauge('robot_velocity_angular',  'Angular velocity Z (rad/s)'
 _bat_pct_gauge   = Gauge('robot_battery_percentage','Battery percentage (0-100)',          ['robot_id'])
 _imu_accel_gauge = Gauge('robot_imu_accel_horiz',   'Horizontal acceleration magnitude (m/s²)', ['robot_id'])
 _tilt_gauge      = Gauge('robot_tilt_angle_deg',    'Max roll/pitch angle (degrees)',      ['robot_id'])
-_geofence_gauge  = Gauge('robot_geofence_status',   'Geofence violation (1=breach, 0=ok)', ['robot_id'])
+_geofence_gauge      = Gauge('robot_geofence_status',     'Geofence violation (1=breach, 0=ok)', ['robot_id'])
+_geofence_dist_gauge = Gauge('robot_geofence_distance_m', 'Distance from origin (m)',            ['robot_id'])
 _auto_stop_gauge   = Gauge('robot_safety_auto_stop_enabled', 'Auto-stop feature enabled (1=on)')
 _conn_status_gauge = Gauge('robot_connection_status',       'Connection status (1=ok, 0=lost)',  ['robot_id'])
 _stall_gauge       = Gauge('robot_motor_stall_status',      'Motor stall (1=stalling, 0=ok)',    ['robot_id'])
@@ -98,6 +99,7 @@ class AlertMonitorNode(Node):
         self.geofence_x_max    = float(os.environ.get('ALERT_GEOFENCE_X_MAX',  '5.0'))
         self.geofence_y_min    = float(os.environ.get('ALERT_GEOFENCE_Y_MIN', '-5.0'))
         self.geofence_y_max    = float(os.environ.get('ALERT_GEOFENCE_Y_MAX',  '5.0'))
+        self.geofence_lookahead_s = float(os.environ.get('ALERT_GEOFENCE_LOOKAHEAD_S', '5.0'))
 
         # State
         self.auto_stop_enabled: bool = False
@@ -266,6 +268,8 @@ class AlertMonitorNode(Node):
         # GEOFENCE_BREACH
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
+        dist = math.sqrt(x * x + y * y)
+        _geofence_dist_gauge.labels(robot_id=str(idx)).set(dist)
         in_bounds = (
             self.geofence_x_min <= x <= self.geofence_x_max and
             self.geofence_y_min <= y <= self.geofence_y_max
@@ -275,10 +279,39 @@ class AlertMonitorNode(Node):
             self._fire_alert(
                 idx, 'GEOFENCE_BREACH', 'critical',
                 f'{ns}: out of bounds ({x:.1f}, {y:.1f})',
-                math.sqrt(x * x + y * y), 0.0
+                dist, 0.0
             )
         else:
             self._clear_alert(idx, 'GEOFENCE_BREACH')
+
+        # Predictive geofence: warn before the robot leaves the fence
+        if self.geofence_lookahead_s > 0 and abs(lin_x) > 0.01:
+            qx_o = msg.pose.pose.orientation.x
+            qy_o = msg.pose.pose.orientation.y
+            qz_o = msg.pose.pose.orientation.z
+            qw_o = msg.pose.pose.orientation.w
+            yaw = math.atan2(
+                2.0 * (qw_o * qz_o + qx_o * qy_o),
+                1.0 - 2.0 * (qy_o * qy_o + qz_o * qz_o)
+            )
+            pred_x = x + lin_x * math.cos(yaw) * self.geofence_lookahead_s
+            pred_y = y + lin_x * math.sin(yaw) * self.geofence_lookahead_s
+            pred_in_bounds = (
+                self.geofence_x_min <= pred_x <= self.geofence_x_max and
+                self.geofence_y_min <= pred_y <= self.geofence_y_max
+            )
+            if not pred_in_bounds and in_bounds:
+                self._fire_alert(
+                    idx, 'GEOFENCE_BREACH', 'warning',
+                    f'{ns}: approaching boundary in ~{self.geofence_lookahead_s:.0f}s'
+                    f' (predicted {pred_x:.1f}, {pred_y:.1f})',
+                    math.sqrt(pred_x ** 2 + pred_y ** 2), 0.0,
+                    cond='GEOFENCE_APPROACH'
+                )
+            else:
+                self._clear_alert(idx, 'GEOFENCE_APPROACH')
+        else:
+            self._clear_alert(idx, 'GEOFENCE_APPROACH')
 
     def _on_battery(self, msg: BatteryState, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
@@ -498,7 +531,7 @@ class AlertMonitorNode(Node):
             'threshold': threshold,
         }
         self.alert_buffer.append(alert)
-        _alert_counter.labels(robot_id=str(robot_idx), alert_type=alert_type).inc()
+        _alert_counter.labels(robot_id=str(robot_idx), alert_type=alert_type, severity=severity).inc()
 
         out = String()
         out.data = json.dumps(alert)

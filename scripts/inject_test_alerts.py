@@ -11,8 +11,12 @@ Usage:
   # Override severity
   python3 inject_test_alerts.py --type LOW_BATTERY --severity critical
 
+  # Test history hydration (reconnect path) — publishes to /robot_alerts_history
+  python3 inject_test_alerts.py --all --history
+
   # Inside the container
   docker exec rosviz-ros python3 /ros_ws/scripts/inject_test_alerts.py --all
+  docker exec rosviz-ros python3 /ros_ws/scripts/inject_test_alerts.py --all --history
 """
 
 import argparse
@@ -67,6 +71,8 @@ def main() -> None:
     parser.add_argument('--robot-id', type=int, default=0, metavar='ID', help='Robot ID (default: 0)')
     parser.add_argument('--severity', choices=['critical', 'warning'], help='Override default severity')
     parser.add_argument('--all', action='store_true', dest='all_types', help='Inject one of each type')
+    parser.add_argument('--history', action='store_true',
+                        help='Publish a JSON array to /robot_alerts_history (tests reconnect hydration)')
     args = parser.parse_args()
 
     if not args.all_types and not args.type:
@@ -74,20 +80,32 @@ def main() -> None:
 
     rclpy.init()
     node = Node('inject_test_alerts')
-    pub = node.create_publisher(String, '/robot_alerts', 10)
+    topic = '/robot_alerts_history' if args.history else '/robot_alerts'
+    pub = node.create_publisher(String, topic, 10)
 
     # Give rosbridge time to pick up the new publisher
     time.sleep(0.5)
 
     types_to_send = list(ALERT_TYPES) if args.all_types else [args.type]
-    for alert_type in types_to_send:
-        alert = make_alert(alert_type, args.robot_id, args.severity)
+
+    if args.history:
+        # Publish all alerts as a single JSON array — matches the format of _publish_history
+        alerts = [make_alert(t, args.robot_id, args.severity) for t in types_to_send]
         msg = String()
-        msg.data = json.dumps(alert)
+        msg.data = json.dumps(alerts)
         pub.publish(msg)
-        node.get_logger().info(f'Injected {alert_type} (robot {args.robot_id}, {alert["severity"]})')
-        if args.all_types:
-            time.sleep(0.1)
+        node.get_logger().info(
+            f'Injected {len(alerts)} alerts into {topic} (history hydration test)'
+        )
+    else:
+        for alert_type in types_to_send:
+            alert = make_alert(alert_type, args.robot_id, args.severity)
+            msg = String()
+            msg.data = json.dumps(alert)
+            pub.publish(msg)
+            node.get_logger().info(f'Injected {alert_type} (robot {args.robot_id}, {alert["severity"]})')
+            if args.all_types:
+                time.sleep(0.1)
 
     node.destroy_node()
     rclpy.shutdown()

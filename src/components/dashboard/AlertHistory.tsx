@@ -148,6 +148,13 @@ export default function AlertHistory() {
     });
   }
 
+  function clearHistory() {
+    setAlerts([]);
+    setAcknowledgedIds(new Set());
+    safeSetItem(LS_ALERTS_KEY, '[]');
+    safeSetItem(LS_ACKED_KEY, '[]');
+  }
+
   function acknowledgeAll() {
     setAcknowledgedIds(prev => {
       const next = new Set(prev);
@@ -234,6 +241,13 @@ export default function AlertHistory() {
           >
             {autoStopEnabled ? <Shield className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
             {autoStopEnabled ? 'Auto-stop ON' : 'Auto-stop OFF'}
+          </button>
+          <button
+            onClick={clearHistory}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-400 transition-colors"
+            title="Clear all alert history"
+          >
+            Clear
           </button>
           <a
             href={GRAFANA_URL}
