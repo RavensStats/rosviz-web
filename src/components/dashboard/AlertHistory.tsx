@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, ExternalLink, Shield, ShieldOff } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 import { useROS } from '@/hooks/useROS';
 import { TOPICS } from '@/lib/rosTopics';
 import type { AlertMessage, AlertSeverity, AlertType } from '@/types/ros';
@@ -248,13 +248,12 @@ export default function AlertHistory() {
             onClick={toggleAutoStop}
             disabled={!isConnected}
             title={autoStopEnabled ? 'Auto-stop ON — click to disable' : 'Auto-stop OFF — click to enable'}
-            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 ${
+            className={`text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 ${
               autoStopEnabled
-                ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-red-700 text-white hover:bg-red-800'
             }`}
           >
-            {autoStopEnabled ? <Shield className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
             {autoStopEnabled ? 'Auto-stop ON' : 'Auto-stop OFF'}
           </button>
           <button
@@ -288,20 +287,16 @@ export default function AlertHistory() {
             </button>
           ))}
           <span className="text-gray-600 text-xs">|</span>
-          <button onClick={() => setFilterRobotId(null)}
-            className={`text-xs px-1.5 py-0.5 rounded ${
-              filterRobotId === null ? 'bg-[#00a5ff] text-white' : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
-            }`}>
-            All robots
-          </button>
-          {robotIds.map(id => (
-            <button key={id} onClick={() => setFilterRobotId(id)}
-              className={`text-xs px-1.5 py-0.5 rounded ${
-                filterRobotId === id ? 'bg-[#00a5ff] text-white' : 'bg-[#2a2a2a] text-gray-400 hover:text-white'
-              }`}>
-              R{id}
-            </button>
-          ))}
+          <select
+            value={filterRobotId === null ? '' : String(filterRobotId)}
+            onChange={e => setFilterRobotId(e.target.value === '' ? null : Number(e.target.value))}
+            className="text-xs bg-[#2a2a2a] text-gray-300 rounded px-1.5 py-0.5 border border-[#3a3a3a] focus:outline-none focus:border-[#00a5ff]"
+          >
+            <option value="">All robots</option>
+            {robotIds.map(id => (
+              <option key={id} value={String(id)}>tb3_{id}</option>
+            ))}
+          </select>
           {filteredAlerts.some(a => !acknowledgedIds.has(a.id)) && (
             <button onClick={acknowledgeAll}
               className="text-xs text-gray-500 hover:text-white ml-auto">
