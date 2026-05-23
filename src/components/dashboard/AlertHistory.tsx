@@ -103,9 +103,9 @@ export default function AlertHistory() {
   const [critFlash, setCritFlash] = useState(false);
   const disconnectTimeRef = useRef<number | null>(null);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevConnectedRef = useRef(isConnected);
   const listRef = useRef<HTMLDivElement>(null);
   const { subscribe, publish, isConnected } = useROS({ url: 'ws://localhost:9090' });
+  const prevConnectedRef = useRef(isConnected);
 
   const robotIds = useMemo(
     () => [...new Set(alerts.map(a => a.robot_id))].sort((a, b) => a - b),
@@ -374,7 +374,7 @@ export default function AlertHistory() {
                 {!acked && (
                   <button
                     onClick={() => acknowledge(alert.id)}
-                    className="ml-auto text-gray-600 hover:text-gray-300 flex-shrink-0 self-center text-xs"
+                    className="mr-1 text-green-600 hover:text-green-400 flex-shrink-0 self-center text-xs"
                     title="Acknowledge"
                   >✓</button>
                 )}

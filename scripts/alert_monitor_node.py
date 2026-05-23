@@ -40,6 +40,22 @@ from prometheus_client import Counter, Gauge, start_http_server
 from sensor_msgs.msg import BatteryState, Imu, JointState, LaserScan
 from std_msgs.msg import Bool, String
 
+# ── All known alert types with their severity (used to pre-seed counters) ─
+_ALERT_SEVERITIES: dict[str, str] = {
+    'COLLISION':        'critical',
+    'VELOCITY_EXCEEDED':'warning',
+    'CONNECTION_LOSS':  'critical',
+    'LOW_BATTERY':      'warning',
+    'IMPACT_DETECTED':  'warning',
+    'TILT_WARNING':     'critical',
+    'MOTOR_STALL':      'warning',
+    'GEOFENCE_BREACH':  'critical',
+    'BATTERY_FAULT':    'critical',
+    'MOTOR_OVERLOAD':   'warning',
+    'VERTICAL_SHOCK':   'warning',
+    'WHEEL_SLIP':       'warning',
+}
+
 # ── TurtleBot3 footprint radii (centre to furthest corner, metres) ──────
 # Burger:    138 mm × 178 mm  → half-diagonal ≈ 0.113 m
 # Waffle/Pi: 306 mm × 306 mm  → half-diagonal ≈ 0.216 m
@@ -134,6 +150,8 @@ class AlertMonitorNode(Node):
         for i in range(num_robots):
             _conn_status_gauge.labels(robot_id=str(i)).set(1)
             _stall_gauge.labels(robot_id=str(i)).set(0)
+            for alert_type, severity in _ALERT_SEVERITIES.items():
+                _alert_counter.labels(robot_id=str(i), alert_type=alert_type, severity=severity)
         self.last_msg_time: dict = {}     # robot_idx -> timestamp
         self.last_velocity: dict = {}     # robot_idx -> abs linear velocity (m/s)
         self.real_battery: set = set()    # robot indices with real BatteryState msgs

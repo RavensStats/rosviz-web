@@ -89,6 +89,7 @@
               { "color": "green", "value": null }
             ]
           },
+          "decimals": 2,
           "unit": "m"
         },
         "overrides": []
@@ -148,6 +149,7 @@
               { "color": "yellow", "value": 0.5 }
             ]
           },
+          "decimals": 2,
           "unit": "velocityms"
         },
         "overrides": []
@@ -204,6 +206,7 @@
               { "color": "green", "value": 50 }
             ]
           },
+          "decimals": 1,
           "unit": "percent"
         },
         "overrides": []
@@ -242,37 +245,12 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 8 },
       "id": 4,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["sum"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "floor(increase(robot_alert_total{robot_id=~\"$robot_id\"}[5m]))",
-          "legendFormat": "{{alert_type}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Alerts by Type (last 5m)",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
-          "mappings": [],
+          "custom": { "align": "left", "cellOptions": { "type": "color-background" }, "inspect": false },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -282,32 +260,103 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Alert Type" },
+            "properties": [
+              { "id": "custom.width", "value": 200 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "transparent" } },
+              { "id": "custom.cellOptions", "value": { "type": "auto" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Count (5m)" },
+            "properties": [{ "id": "custom.width", "value": 100 }]
+          }
+        ]
       },
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
-      "id": 5,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["sum"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
+      "options": { "footer": { "show": false }, "showHeader": true },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
-          "expr": "floor(increase(robot_alert_total{robot_id=~\"$robot_id\"}[5m]))",
-          "legendFormat": "Robot {{robot_id}}",
+          "expr": "floor(sum by (alert_type) (increase(robot_alert_total{robot_id=~\"$robot_id\"}[5m])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
           "refId": "A"
         }
       ],
+      "transformations": [
+        { "id": "organize", "options": {
+          "excludeByName": { "Time": true },
+          "renameByName": { "alert_type": "Alert Type", "Value": "Count (5m)" }
+        }},
+        { "id": "sortBy", "options": { "fields": [{ "displayName": "Count (5m)", "desc": true }] }}
+      ],
+      "title": "Alerts by Type (last 5m)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "left", "cellOptions": { "type": "color-background" }, "inspect": false },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Robot" },
+            "properties": [
+              { "id": "custom.width", "value": 200 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "transparent" } },
+              { "id": "custom.cellOptions", "value": { "type": "auto" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": {
+                  "0": { "text": "tb3_0", "index": 0 },
+                  "1": { "text": "tb3_1", "index": 1 },
+                  "2": { "text": "tb3_2", "index": 2 },
+                  "3": { "text": "tb3_3", "index": 3 },
+                  "4": { "text": "tb3_4", "index": 4 }
+                }}
+              ]}
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Count (5m)" },
+            "properties": [{ "id": "custom.width", "value": 100 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 18 },
+      "id": 5,
+      "options": { "footer": { "show": false }, "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "expr": "floor(sum by (robot_id) (increase(robot_alert_total{robot_id=~\"$robot_id\"}[5m])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": {
+          "excludeByName": { "Time": true },
+          "renameByName": { "robot_id": "Robot", "Value": "Count (5m)" }
+        }},
+        { "id": "sortBy", "options": { "fields": [{ "displayName": "Robot", "desc": false }] }}
+      ],
       "title": "Alerts by Robot (last 5m)",
-      "type": "stat"
+      "type": "table"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
@@ -341,6 +390,7 @@
               { "color": "red", "value": 8 }
             ]
           },
+          "decimals": 2,
           "unit": "accMS2"
         },
         "overrides": []
@@ -395,6 +445,7 @@
               { "color": "red", "value": 20 }
             ]
           },
+          "decimals": 1,
           "unit": "degree"
         },
         "overrides": []
@@ -538,6 +589,7 @@
               { "color": "yellow", "value": 2.0 }
             ]
           },
+          "decimals": 2,
           "unit": "radps"
         },
         "overrides": []
@@ -638,6 +690,7 @@
               { "color": "red", "value": 7.07 }
             ]
           },
+          "decimals": 2,
           "unit": "lengthm"
         },
         "overrides": []
@@ -747,6 +800,7 @@
               { "color": "green", "value": 80 }
             ]
           },
+          "decimals": 0,
           "unit": "percent"
         },
         "overrides": []

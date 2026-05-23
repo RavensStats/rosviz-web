@@ -7,7 +7,8 @@ contactPoints:
       - uid: alert-webhook-receiver
         type: webhook
         settings:
-          url: ${ALERT_WEBHOOK_URL}
+          # Default: Prometheus health-check (no-op). Override via Grafana UI → Alerting → Contact points.
+          url: http://prometheus:9090/-/healthy
           httpMethod: POST
         disableResolveMessage: false
 
@@ -17,7 +18,8 @@ contactPoints:
       - uid: discord-receiver
         type: discord
         settings:
-          url: ${DISCORD_WEBHOOK_URL}
+          # Paste your Discord webhook URL here or set it via the Grafana UI.
+          url: http://prometheus:9090/-/healthy
           message: >-
             **[{{ range .Alerts }}{{ .Labels.severity | upper }}{{ end }}]
             {{ range .Alerts }}{{ .Labels.alert_type }}{{ end }}**
@@ -45,8 +47,6 @@ policies:
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 12h
-    mute_time_intervals:
-      - maintenance-window
     routes:
       - receiver: discord
         matchers: []
