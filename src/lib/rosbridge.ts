@@ -92,7 +92,13 @@ class ROSBridge extends EventEmitter {
           if (msg.data && typeof msg.data === "string" && isBase64(msg.data)) {
             msg.data = this.base64ToUint8Array(msg.data);
           }
-          subscription.callbacks.forEach((callback) => callback(msg));
+          subscription.callbacks.forEach((callback) => {
+            try {
+              callback(msg);
+            } catch (err) {
+              console.error(`[rosbridge] Callback error on topic ${data.topic}:`, err);
+            }
+          });
         }
       }
     } catch (error) {
