@@ -23,7 +23,7 @@ function severityClasses(severity: AlertSeverity): string {
 
 function AlertIcon({ type }: { type: AlertType }) {
   const cls = 'w-3 h-3 flex-shrink-0';
-  return type === 'COLLISION' || type === 'CONNECTION_LOSS' || type === 'TILT_WARNING' || type === 'GEOFENCE_BREACH'
+  return type === 'COLLISION' || type === 'CONNECTION_LOSS' || type === 'TILT_WARNING' || type === 'GEOFENCE_BREACH' || type === 'BATTERY_FAULT'
     ? <AlertCircle className={cls} />
     : <AlertTriangle className={cls} />;
 }
@@ -47,6 +47,10 @@ function formatMeasurement(type: AlertType, value: number, threshold: number): s
     case 'TILT_WARNING':      return `${value.toFixed(1)}° / limit ${threshold.toFixed(1)}°`;
     case 'MOTOR_STALL':       return `${value.toFixed(3)} rad/s / limit ${threshold.toFixed(3)} rad/s`;
     case 'GEOFENCE_BREACH':   return `${value.toFixed(1)} m from origin`;
+    case 'BATTERY_FAULT':    return `health code ${value.toFixed(0)} (1=good)`;
+    case 'MOTOR_OVERLOAD':   return `${value.toFixed(2)} N·m / limit ${threshold.toFixed(2)} N·m`;
+    case 'VERTICAL_SHOCK':   return `${value.toFixed(1)} m/s² change / limit ${threshold.toFixed(1)} m/s²`;
+    case 'WHEEL_SLIP':       return `wheel ${value.toFixed(2)} rad/s / odom ${threshold.toFixed(2)} m/s`;
     default:                  return `${value.toFixed(2)} / ${threshold.toFixed(2)}`;
   }
 }

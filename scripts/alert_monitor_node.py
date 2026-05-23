@@ -10,6 +10,10 @@ Detects:
   TILT_WARNING     — IMU roll/pitch angle exceeds safe limit
   MOTOR_STALL      — Wheel velocity near zero while move command is active
   GEOFENCE_BREACH  — Robot position outside configured bounding box
+  BATTERY_FAULT    — BatteryState power_supply_health indicates fault condition
+  MOTOR_OVERLOAD   — JointState effort above threshold while wheels are moving
+  VERTICAL_SHOCK   — IMU vertical acceleration delta exceeds threshold
+  WHEEL_SLIP       — Wheels spinning but robot not translating (cmd vs odom mismatch)
 
 Publishes:
   /robot_alerts         (std_msgs/String) — one JSON alert per message
@@ -77,6 +81,9 @@ _auto_stop_gauge   = Gauge('robot_safety_auto_stop_enabled', 'Auto-stop feature 
 _conn_status_gauge = Gauge('robot_connection_status',       'Connection status (1=ok, 0=lost)',  ['robot_id'])
 _stall_gauge       = Gauge('robot_motor_stall_status',      'Motor stall (1=stalling, 0=ok)',    ['robot_id'])
 _coll_thresh_gauge = Gauge('robot_collision_threshold',     'Dynamic collision threshold (m)',    ['robot_id'])
+_bat_health_gauge  = Gauge('robot_battery_health',          'Power supply health code',           ['robot_id'])
+_effort_gauge      = Gauge('robot_motor_effort',            'Max wheel joint effort (N·m)',        ['robot_id'])
+_vert_accel_gauge  = Gauge('robot_imu_accel_vert',          'Vertical acceleration (m/s²)',        ['robot_id'])
 
 
 class AlertMonitorNode(Node):
@@ -100,6 +107,10 @@ class AlertMonitorNode(Node):
         self.geofence_y_min    = float(os.environ.get('ALERT_GEOFENCE_Y_MIN', '-5.0'))
         self.geofence_y_max    = float(os.environ.get('ALERT_GEOFENCE_Y_MAX',  '5.0'))
         self.geofence_lookahead_s = float(os.environ.get('ALERT_GEOFENCE_LOOKAHEAD_S', '5.0'))
+        self.bat_health_fault_enabled = os.environ.get('ALERT_BATTERY_HEALTH_FAULT', 'true').lower() == 'true'
+        self.motor_effort_max  = float(os.environ.get('ALERT_MOTOR_EFFORT_MAX', '1.0'))
+        self.vert_shock_ms2    = float(os.environ.get('ALERT_VERTICAL_SHOCK_MS2', '5.0'))
+        self.slip_duration_s   = float(os.environ.get('ALERT_SLIP_DURATION_S', '2.0'))
 
         # State
         self.auto_stop_enabled: bool = False
@@ -119,7 +130,10 @@ class AlertMonitorNode(Node):
         self.last_velocity: dict = {}     # robot_idx -> abs linear velocity (m/s)
         self.real_battery: set = set()    # robot indices with real BatteryState msgs
         self.last_cmd_vel: dict = {}      # robot_idx -> (linear_x, angular_z, timestamp)
-        self.stall_start_time: dict = {}  # robot_idx -> time stall began, or None
+        self.stall_start_time: dict = {}    # robot_idx -> time stall began, or None
+        self.overload_start_time: dict = {} # robot_idx -> time overload began, or None
+        self.last_az: dict = {}             # robot_idx -> previous IMU z-acceleration
+        self.slip_start_time: dict = {}     # robot_idx -> time slip began, or None
         # Stagger starting charge so robots show distinct lines on the chart
         self.simulated_battery: dict = {
             i: 95.0 - (i * 5.0) for i in range(num_robots)
@@ -331,6 +345,15 @@ class AlertMonitorNode(Node):
             )
         else:
             self._clear_alert(idx, 'LOW_BATTERY')
+        health = int(getattr(msg, 'power_supply_health', 0))
+        _bat_health_gauge.labels(robot_id=str(idx)).set(health)
+        if self.bat_health_fault_enabled and health not in (0, 1):
+            _health_labels = {2: 'overheat', 3: 'dead cell', 4: 'overvoltage', 5: 'unspec failure'}
+            health_label = _health_labels.get(health, f'health code {health}')
+            self._fire_alert(idx, 'BATTERY_FAULT', 'critical',
+                             f'{ns}: battery {health_label}', float(health), 1.0)
+        else:
+            self._clear_alert(idx, 'BATTERY_FAULT')
 
     def _on_imu(self, msg: Imu, ns: str, idx: int) -> None:
         self.last_msg_time[idx] = time.time()
@@ -366,6 +389,16 @@ class AlertMonitorNode(Node):
             )
         else:
             self._clear_alert(idx, 'TILT_WARNING')
+        az = msg.linear_acceleration.z
+        _vert_accel_gauge.labels(robot_id=str(idx)).set(az)
+        az_delta = abs(az - self.last_az.get(idx, az))
+        self.last_az[idx] = az
+        if az_delta > self.vert_shock_ms2:
+            self._fire_alert(idx, 'VERTICAL_SHOCK', 'warning',
+                             f'{ns}: vertical shock {az_delta:.1f} m/s² change',
+                             az_delta, self.vert_shock_ms2)
+        else:
+            self._clear_alert(idx, 'VERTICAL_SHOCK')
 
     def _on_cmd_vel(self, msg: Twist, ns: str, idx: int) -> None:
         self.last_cmd_vel[idx] = (msg.linear.x, msg.angular.z, time.time())
@@ -380,6 +413,8 @@ class AlertMonitorNode(Node):
         lin_x, ang_z, cmd_time = cmd
         if abs(lin_x) < 0.05 and abs(ang_z) < 0.05:
             self.stall_start_time[idx] = None
+            self.overload_start_time[idx] = None
+            self.slip_start_time[idx] = None
             return
         if time.time() - cmd_time > 1.0:  # stale command
             return
@@ -391,6 +426,39 @@ class AlertMonitorNode(Node):
         if not wheel_vels:
             return
         max_vel = max(wheel_vels)
+
+        # MOTOR_OVERLOAD: high torque while wheels still moving (binding precursor to stall)
+        wheel_efforts = [
+            abs(msg.effort[i])
+            for i, name in enumerate(msg.name)
+            if name in self._WHEEL_JOINTS and i < len(msg.effort)
+        ]
+        max_effort = max(wheel_efforts) if wheel_efforts else 0.0
+        _effort_gauge.labels(robot_id=str(idx)).set(max_effort)
+        if max_effort > self.motor_effort_max and max_vel >= 0.1:
+            if self.overload_start_time.get(idx) is None:
+                self.overload_start_time[idx] = time.time()
+            elif time.time() - self.overload_start_time[idx] >= self.stall_duration_s:
+                self._fire_alert(idx, 'MOTOR_OVERLOAD', 'warning',
+                                 f'{ns}: motor effort {max_effort:.2f} N·m',
+                                 max_effort, self.motor_effort_max)
+        else:
+            self.overload_start_time[idx] = None
+            self._clear_alert(idx, 'MOTOR_OVERLOAD')
+
+        # WHEEL_SLIP: wheels spinning but robot not translating
+        odom_vel = self.last_velocity.get(idx, 0.0)
+        if abs(lin_x) > 0.1 and max_vel > 0.5 and odom_vel < 0.05:
+            if self.slip_start_time.get(idx) is None:
+                self.slip_start_time[idx] = time.time()
+            elif time.time() - self.slip_start_time[idx] >= self.slip_duration_s:
+                self._fire_alert(idx, 'WHEEL_SLIP', 'warning',
+                                 f'{ns}: wheels spinning ({max_vel:.2f} rad/s) but not translating',
+                                 max_vel, odom_vel)
+        else:
+            self.slip_start_time[idx] = None
+            self._clear_alert(idx, 'WHEEL_SLIP')
+
         if max_vel < 0.1:
             if self.stall_start_time.get(idx) is None:
                 self.stall_start_time[idx] = time.time()

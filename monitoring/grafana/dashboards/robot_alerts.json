@@ -36,7 +36,20 @@
     }
   ],
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+        "enable": true,
+        "expr": "changes(robot_alert_total[1m]) > 0",
+        "hide": false,
+        "iconColor": "red",
+        "name": "Alert Events",
+        "step": "60s",
+        "titleFormat": "Alert fired",
+        "textFormat": "Robot {{robot_id}} — {{alert_type}} ({{severity}})",
+        "type": "graph"
+      }
+    ]
   },
   "description": "Robot fleet telemetry and alert monitoring",
   "editable": true,
@@ -719,6 +732,80 @@
       ],
       "title": "Warning Alerts (last 5m)",
       "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 80 }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 44 },
+      "id": 15,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "expr": "100 * count(robot_connection_status == 1) / count(robot_connection_status > -Inf)",
+          "legendFormat": "Fleet Health",
+          "refId": "A"
+        }
+      ],
+      "title": "Fleet Health Score",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "id": 16,
+      "options": { "footer": { "show": false }, "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "expr": "sum by (robot_id, alert_type, severity) (increase(robot_alert_total[24h]))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Alert Frequency by Robot (24h)",
+      "transformations": [
+        { "id": "sortBy", "options": { "fields": [{ "displayName": "Value", "desc": true }] } }
+      ],
+      "type": "table"
     }
   ],
   "refresh": "5s",

@@ -107,7 +107,6 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
-
       - uid: robot-velocity-alert
         title: Robot Velocity Exceeded
         condition: threshold
@@ -157,7 +156,6 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
-
       - uid: robot-tilt-alert
         title: Robot Tilt Warning
         condition: threshold
@@ -207,7 +205,6 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
-
       - uid: robot-geofence-alert
         title: Robot Geofence Breach
         condition: threshold
@@ -257,7 +254,6 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
-
       - uid: robot-battery-alert
         title: Robot Low Battery
         condition: threshold
@@ -307,7 +303,6 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
-
       - uid: robot-connection-alert
         title: Robot Connection Loss
         condition: threshold
@@ -407,6 +402,55 @@ groups:
               type: threshold
         noDataState: OK
         execErrState: Alerting
+      - uid: robot-brownout-risk-alert
+        title: Robot Brownout Risk
+        condition: threshold
+        for: 10s
+        annotations:
+          summary: 'Robot {{ $labels.robot_id }}: aggressive maneuver at low battery'
+          description: 'High horizontal acceleration with battery below 30% — brownout risk'
+        labels:
+          severity: warning
+          alert_type: BROWNOUT_RISK
+        data:
+          - refId: A
+            datasourceUid: prometheus-ds
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              expr: (robot_imu_accel_horiz > 6) and on(robot_id) (robot_battery_percentage < 30) and on(robot_id) (robot_connection_status == 1)
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: threshold
+            datasourceUid: '-100'
+            relativeTimeRange:
+              from: 30
+              to: 0
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: '-100'
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: threshold
+              type: threshold
+        noDataState: OK
+        execErrState: OK
 
       - uid: robot-impact-alert
         title: Robot Impact Detected

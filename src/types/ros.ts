@@ -170,7 +170,11 @@ export type AlertType =
   | 'IMPACT_DETECTED'
   | 'TILT_WARNING'
   | 'MOTOR_STALL'
-  | 'GEOFENCE_BREACH';
+  | 'GEOFENCE_BREACH'
+  | 'BATTERY_FAULT'
+  | 'MOTOR_OVERLOAD'
+  | 'VERTICAL_SHOCK'
+  | 'WHEEL_SLIP';
 
 export interface AlertMessage {
   id: string;
