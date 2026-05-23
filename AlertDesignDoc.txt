@@ -20,10 +20,12 @@
       2.5  Auto-Stop Safety Feature
       2.6  Alert History Persistence
       2.7  Node Heartbeat
+      2.8  Simulated Battery Model
   3.  Prometheus Integration
       3.1  Scrape Configuration
       3.2  Threshold Gauges — Single Source of Truth
   4.  Grafana Dashboard  (monitoring/grafana/dashboards/robot_alerts.json)
+      4.0  Provisioning File Structure
       4.1  Template Variable
       4.2  Panel Inventory
       4.3  Unified Alerting Rules
@@ -45,6 +47,7 @@
   12. AlertMessage JSON Schema and Alert ID Format
   13. Developer Guide — Adding a New Alert Type
   14. Security Considerations
+  15. Verification and Smoke-Test Guide
 
 ================================================================================
   1.  SYSTEM ARCHITECTURE OVERVIEW
@@ -157,10 +160,20 @@
   ┌─────────────────────┬──────────┬────────────────────────────────────────────────────────────┐
   │ Alert Type          │ Severity │ Detection Logic                                             │
   ├─────────────────────┼──────────┼────────────────────────────────────────────────────────────┤
-  │ COLLISION           │ critical │ Min LaserScan range in forward 270° arc < collision         │
-  │                     │          │ threshold (robot footprint corner radius + margin).         │
-  │                     │          │ Velocity lookahead: threshold tightens proportionally to    │
-  │                     │          │ linear speed × scan_reaction_time_s.                        │
+  │ COLLISION           │ critical │ Full 360° scan divided into three zones. Severity depends   │
+  │                     │ or       │ on zone and robot motion direction:                         │
+  │                     │ warning  │ Forward ±45°: critical if range < crit_thresh;              │
+  │                     │          │               warning  if range < warn_thresh (2× crit).   │
+  │                     │          │ Rear ±45°:    critical only if robot is reversing;          │
+  │                     │          │               warning  otherwise.                           │
+  │                     │          │ Sides:        critical only if robot is actively turning    │
+  │                     │          │               (sweeping into the obstacle); warning else.   │
+  │                     │          │ crit_thresh = footprint_radius + margin +                   │
+  │                     │          │               speed × scan_reaction_time_s (velocity        │
+  │                     │          │               lookahead tightens threshold at speed).       │
+  │                     │          │ robot_min_scan_range gauge = min(forward, rear, side) —     │
+  │                     │          │ covers full 360°, so Panel 1 can be driven by a rear        │
+  │                     │          │ obstacle even when the robot is stationary.                 │
   ├─────────────────────┼──────────┼────────────────────────────────────────────────────────────┤
   │ VELOCITY_EXCEEDED   │ warning  │ |linear_x| > vel_linear_max OR |angular_z| > vel_angular_max│
   │                     │          │ from Odometry. Both thresholds are independently checked.   │
@@ -306,6 +319,45 @@
   robots appeared healthy because their last-known metrics were still served
   by Prometheus. Now a dead monitor is detectable within 30 seconds.
 
+
+  2.8  SIMULATED BATTERY MODEL
+  ──────────────────────────────
+
+  For any robot that has never published a real sensor_msgs/BatteryState
+  message, the node maintains a software-simulated battery updated every
+  second by _update_simulated_battery().
+
+  Starting values (staggered so robots show distinct lines on the chart):
+    Robot 0: 95.0 %
+    Robot 1: 90.0 %
+    Robot 2: 85.0 %
+    Robot N: (95.0 - N × 5.0) %
+
+  Drain rate per second:
+    base:     0.008 %/s   (robot at rest, always applied)
+    velocity: 0.040 × linear_velocity %/s   (proportional to speed)
+
+  Combined:
+    drain = 0.008 + vel × 0.04  %/s
+
+  Representative drain times from full charge (95%):
+    At rest (0 m/s):           95% / 0.008 %/s ≈ 197 minutes (~3.3 h)
+    At max speed (0.50 m/s):   95% / 0.028 %/s ≈  57 minutes (~1 h)
+
+  When a robot starts publishing real BatteryState messages, its index is
+  added to the real_battery set and the simulated drain loop skips it.
+  The simulated percentage is synchronised to the real value on first receipt
+  so the metric transitions smoothly.
+
+  LOW_BATTERY fires from simulated data exactly as it would from real data —
+  the check is the same regardless of source. This means robots in a fresh
+  simulation session will trigger LOW_BATTERY automatically after roughly
+  one hour of high-speed operation without any hardware or ROS battery plugin.
+
+  Business benefit: Operators can evaluate and demonstrate the full alert
+  pipeline including battery alerts in Gazebo without a battery state plugin
+  or physical hardware.
+
 ================================================================================
   3.  PROMETHEUS INTEGRATION
 ================================================================================
@@ -351,6 +403,43 @@
 ================================================================================
   4.  GRAFANA DASHBOARD  (monitoring/grafana/dashboards/robot_alerts.json)
 ================================================================================
+
+  4.0  PROVISIONING FILE STRUCTURE
+  ──────────────────────────────────
+
+  Grafana auto-provisions all configuration from files mounted at container
+  startup. No manual UI setup is required after docker compose up.
+
+  monitoring/grafana/provisioning/
+  ├── datasources/
+  │   └── prometheus.yml       — Registers Prometheus as the default datasource
+  │                               uid: prometheus-ds  (referenced by all panels)
+  │                               url: http://prometheus:9090 (internal Docker network)
+  │                               editable: false — URL cannot be changed from the UI;
+  │                               edit this file and restart grafana to change it.
+  │
+  ├── dashboards/
+  │   └── dashboards.yml       — Tells Grafana where to find dashboard JSON files.
+  │                               folder: "Robot Monitoring" (appears in sidebar)
+  │                               allowUiUpdates: true — edits made in the Grafana UI
+  │                               persist in grafana-storage (SQLite). The JSON file
+  │                               is re-read every updateIntervalSeconds: 10 seconds;
+  │                               changes to robot_alerts.json on disk apply within
+  │                               10s without restarting grafana.
+  │                               disableDeletion: false — dashboards can be deleted
+  │                               from the UI (they reappear on next reload if the
+  │                               JSON file still exists).
+  │
+  └── alerting/
+      └── alert_rules.yml      — Defines contact points, mute timings, routing
+                                  policy, and all Grafana unified alerting rules.
+                                  Changes require docker compose restart grafana.
+                                  The file is read once at startup, not polled.
+
+  Dashboard JSON file:
+    monitoring/grafana/dashboards/robot_alerts.json
+      — The 17-panel dashboard definition. Edited directly for panel changes.
+        Grafana re-reads it within 10 seconds (see updateIntervalSeconds above).
 
   4.1  TEMPLATE VARIABLE
   ────────────────────────
@@ -1447,6 +1536,172 @@
   │ cmd_vel open publish    │ Acceptable   │ Add command lock for multi-user   │
   │ alert_history plaintext │ Acceptable   │ Encrypt volume if data is sensitive│
   └─────────────────────────┴──────────────┴──────────────────────────────────┘
+
+================================================================================
+  15.  VERIFICATION AND SMOKE-TEST GUIDE
+================================================================================
+
+  Use this after first setup or after any significant configuration change to
+  confirm the full pipeline is functioning end-to-end.
+
+  15.1  STEP 1 — ALL SERVICES HEALTHY
+  ─────────────────────────────────────
+
+  Run:  docker compose ps
+
+  Expected output — all four services with Status "Up" and "(healthy)":
+    rosviz-ros         Up (healthy)    0.0.0.0:9090->9090/tcp
+    rosviz-dashboard   Up (healthy)    0.0.0.0:3000->3000/tcp
+    rosviz-prometheus  Up (healthy)    0.0.0.0:9091->9091/tcp
+    rosviz-grafana     Up (healthy)    0.0.0.0:3001->3001/tcp
+
+  If ros-stack is unhealthy: docker compose logs ros-stack | tail -50
+  The health check polls http://localhost:8888/metrics — if that endpoint is
+  absent, the alert_monitor_node has not started yet (allow 30s after boot).
+
+
+  15.2  STEP 2 — PROMETHEUS RECEIVING METRICS
+  ─────────────────────────────────────────────
+
+  Open: http://localhost:9091/targets
+
+  The ros-stack:8888 target must show:
+    State:      UP
+    Last scrape: < 10 seconds ago
+    Error:      (empty)
+
+  Then run these queries at http://localhost:9091 (Graph tab):
+
+    a. robot_connection_status
+       → Should return one series per robot, all with value 1.
+         If empty: Prometheus cannot reach ros-stack:8888. Check Docker network.
+
+    b. robot_alert_node_up
+       → Should return value 1.
+         If 0 or absent: alert_monitor_node exited. Check: docker compose logs ros-stack
+
+    c. increase(robot_alert_node_heartbeat[30s])
+       → Should return a value >= 1 (counter is incrementing every 5s).
+         If 0 or absent: heartbeat thread is dead. Restart ros-stack.
+
+    d. robot_vel_linear_max
+       → Should return your ALERT_VEL_LINEAR_MAX value (default 0.5).
+         Confirms threshold gauges are being set at node startup.
+
+    e. floor(sum by (alert_type)(increase(robot_alert_total[5m])))
+       → Should return 12 rows, all with value 0 on a fresh start.
+         If fewer than 12 rows: counter pre-seeding failed. Restart ros-stack.
+
+
+  15.3  STEP 3 — DASHBOARD CONNECTING
+  ──────────────────────────────────────
+
+  Open: http://localhost:3000
+
+  In the AlertHistory panel (right column):
+    □ The dot next to "Alert History" is green and pulsing.
+    □ "Crit(0)(0) Warn(0)(0)" is shown in the header (no alerts yet).
+    □ The alert list shows "No alerts".
+
+  If the dot is red: rosbridge is unreachable. Check ros-stack is running and
+  port 9090 is mapped. Open browser devtools → Console for WebSocket errors.
+
+
+  15.4  STEP 4 — GRAFANA DASHBOARD LOADING
+  ──────────────────────────────────────────
+
+  Open: http://localhost:3001  (admin / admin)
+  Navigate: Dashboards → Robot Monitoring → Robot Alert Monitor
+
+  □ The "robot_id" variable dropdown is visible at the top.
+    Click it — options should include "All", "0", "1", "2".
+    If empty: robot_connection_status has no data. Go back to step 2.
+
+  □ Panel 8 (Connection Status) shows green for all robots.
+  □ Panel 3 (Battery %) shows three distinct lines starting near 95/90/85%.
+  □ Panel 17 (Alert Monitor Node Status) shows "UP" with a green background.
+
+  If any panel shows "No data": check the time range (top right). Set to
+  "Last 5 minutes". If still empty, Prometheus is not scraping — see step 2.
+
+
+  15.5  STEP 5 — TRIGGER A TEST ALERT END-TO-END
+  ─────────────────────────────────────────────────
+
+  The easiest alert to trigger manually is CONNECTION_LOSS. Stop the
+  ros-stack container (which cuts all sensor topic traffic):
+
+    docker compose stop ros-stack
+
+  Wait 6 seconds (ALERT_CONN_TIMEOUT_S default is 5s).
+
+  Expected results:
+    Dashboard (http://localhost:3000):
+      □ The AlertHistory connection dot turns red (rosbridge stopped).
+
+  Restart ros-stack to reconnect:
+    docker compose start ros-stack
+
+  Wait ~15 seconds for the node to reinitialise and Gazebo to resume.
+
+  Expected results after reconnect:
+    Dashboard:
+      □ Connection dot turns green.
+      □ AlertHistory immediately populates with CONNECTION_LOSS alerts for
+        all robots (on-demand history request fired on reconnect).
+      □ Header shows "Crit(N)(N)" — unacknowledged critical alerts.
+      □ The panel border flashes red for 2 seconds.
+
+    Prometheus (http://localhost:9091):
+      □ Query: robot_alert_total{alert_type="CONNECTION_LOSS"}
+        Returns counts > 0 for each robot.
+
+    Grafana (http://localhost:3001):
+      □ Panel 8 (Connection Status) briefly showed red; now green again.
+      □ Panel 4 (Alerts by Type) shows CONNECTION_LOSS count > 0.
+      □ Alerting → Alert rules → robot-connection-alert:
+        State should now be Normal (was Firing during the outage).
+
+
+  15.6  STEP 6 — VERIFY ALERT RULES ARE EVALUATING
+  ──────────────────────────────────────────────────
+
+  In Grafana: Alerting → Alert rules → robot-thresholds group
+
+  All rules should be in "Normal" state during nominal operation.
+  If any rule shows "Error": click it to view the PromQL eval error.
+  Common cause: datasource UID mismatch. Verify prometheus-ds uid in
+  monitoring/grafana/provisioning/datasources/prometheus.yml matches
+  the uid used in alert_rules.yml data blocks (should both be "prometheus-ds").
+
+  To test a rule fires correctly without physical conditions:
+    Left sidebar → Alerting → Alert rules → (rule) → Edit → Preview
+    The Preview tab runs the PromQL query immediately and shows whether the
+    threshold condition is met. Use this to validate a rule before deploying
+    it to a real robot fleet.
+
+
+  15.7  EXPECTED STEADY-STATE METRICS
+  ──────────────────────────────────────
+
+  After 5+ minutes of nominal operation with no faults, these values
+  indicate a fully healthy system:
+
+  ┌─────────────────────────────────────┬────────────────────────────────────┐
+  │ Metric / Check                       │ Expected value                     │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │ robot_connection_status{robot_id}    │ 1 for all robots                   │
+  │ robot_alert_node_up                  │ 1                                  │
+  │ increase(heartbeat[30s])             │ >= 1 (typically 5-6)               │
+  │ robot_alert_node_heartbeat (counter) │ Increasing monotonically           │
+  │ robot_battery_percentage{robot_id=0} │ ~95% minus elapsed drain           │
+  │ robot_min_scan_range                 │ > robot_collision_threshold        │
+  │ robot_motor_stall_status             │ 0 for all robots                   │
+  │ robot_geofence_status                │ 0 for all robots                   │
+  │ Grafana all alert rules              │ Normal                             │
+  │ AlertHistory connection dot          │ Green, pulsing                     │
+  │ Alert count (Panel 4, last 5m)       │ 0 across all types                 │
+  └─────────────────────────────────────┴────────────────────────────────────┘
 
 ================================================================================
   END OF DOCUMENT
